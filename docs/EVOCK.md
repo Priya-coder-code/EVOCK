@@ -392,9 +392,6 @@ The actual implementation must preserve the distinction between model-derived fi
                      REAL SCREENSHOT
                            │
                            ▼
-                  Explicit User Consent
-                           │
-                           ▼
                   Vision AI Extraction
                            │
                            ▼
@@ -461,7 +458,9 @@ The extension also records actual capture context such as:
 
 ## Step 2 — AI extraction
 
-The screenshot is sent for vision analysis after user authorization.
+The screenshot is sent for vision analysis as part of the preservation pipeline, with no separate prompt or confirmation step. Evidence is time-sensitive, and anything between the user's click and the capture is a window in which the content can be deleted.
+
+If the vision service is unavailable, the pipeline continues without the derived metadata rather than failing the preservation.
 
 The model produces structured metadata.
 
@@ -673,8 +672,6 @@ EVOCK Extension
   ↓
 Screenshot
   ↓
-User authorizes AI extraction
-  ↓
 Vision Service
   ↓
 Structured metadata
@@ -694,9 +691,9 @@ is no longer accurate.
 
 The accurate description is:
 
-> **Capture and long-term evidence storage are local; AI extraction is performed through the configured vision service after explicit user authorization.**
+> **Capture and long-term evidence storage are local; AI extraction is performed through the configured vision service.**
 
-The user should be told when the screenshot will be transmitted for AI analysis.
+Documentation and any public description of EVOCK must describe this accurately rather than claiming that all processing is local.
 
 ---
 
@@ -711,23 +708,13 @@ Current browser:
 WhatsApp
 
 [ PRESERVE EVIDENCE ]
+
+[ Open Vault ]   [ Settings ]
 ```
 
-## Consent step
+Preserving is a single action. Clicking `PRESERVE EVIDENCE` runs the whole pipeline — capture, extraction, hashing, signing, timestamping, encryption and storage — with no prompt, disclosure or confirmation step at any point.
 
-```text
-PRESERVE EVIDENCE
-
-A screenshot of the current browser
-view will be analyzed by the selected
-vision service to extract visible details.
-
-[ ANALYZE & PRESERVE ]
-
-[ PRESERVE WITHOUT AI ]
-```
-
-The second option is strategically useful because evidence preservation should not depend on AI availability.
+If AI extraction fails, the record is still produced with every other field intact, because preservation must not depend on AI availability.
 
 ## After capture
 
@@ -1067,7 +1054,6 @@ A free API can have rate limits, model availability changes and temporary outage
 - one AI request per preservation event;
 - configurable vision provider;
 - local preservation must not depend on successful AI extraction;
-- support "Preserve Without AI";
 - use deterministic demo mode for recorded demonstrations.
 
 ---
@@ -1078,12 +1064,9 @@ This is the biggest privacy trade-off introduced by the revised architecture.
 
 ### Mitigation
 
-- explicit consent before transmission;
-- visible privacy disclosure;
 - no unnecessary repeated uploads;
 - preserve original screenshot locally;
 - encrypt stored evidence;
-- support a no-AI preservation path;
 - future option: local/on-device VLM processing.
 
 ---
@@ -1466,9 +1449,9 @@ AI structures what it can see; it does not determine ultimate truth.
 
 Hashing, signing and verification detect modification.
 
-## Principle 5 — Privacy is explicit
+## Principle 5 — Preservation is a single action
 
-Remote AI processing requires user consent.
+Capturing evidence is one click, with nothing in between. The moment of capture is time-critical, and any step inserted before it is a window in which the content can disappear.
 
 ## Principle 6 — Legal claims stay limited
 

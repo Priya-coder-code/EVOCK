@@ -202,8 +202,6 @@ Browser
    ↓
 Local screenshot capture
    ↓
-Explicit user authorization
-   ↓
 Vision analysis
    ↓
 Structured metadata
@@ -211,7 +209,9 @@ Structured metadata
 Encrypted local evidence storage
 ```
 
-The system should clearly inform the user before a screenshot is sent for AI analysis.
+Preserving evidence is a single action. Clicking **Preserve Evidence** runs the whole pipeline with no prompt or confirmation step at any point, because the moment of capture is time-critical and content can disappear while a dialog is open.
+
+If the vision service is unavailable, preservation continues without the derived metadata rather than failing.
 
 The original evidence remains available as the source artifact.
 
@@ -388,8 +388,6 @@ At a high level:
                            ▼
                       SCREENSHOT
                            │
-                   Explicit Consent
-                           │
                            ▼
                     VISION AI
                            │
@@ -475,7 +473,7 @@ Vision models can misread names, timestamps, or small text.
 
 A remote vision provider may receive the screenshot during extraction.
 
-**Mitigation:** obtain explicit consent, minimize transmissions, provide a no-AI preservation path, encrypt local storage, and support future on-device inference.
+**Mitigation:** minimize transmissions, encrypt local storage, and support future on-device inference.
 
 ### Platform backend data is not accessed
 

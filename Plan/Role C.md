@@ -65,8 +65,7 @@ Commit `tests/fixtures/` before anyone splits off:
 ```text
 capture.sample.json      // real CaptureResult with a small base64 PNG
 extraction.ok.json       // status: "ok" with 2 messages
-extraction.failed.json   // status: "failed" with an error string
-extraction.skipped.json  // status: "skipped", data: null
+extraction.failed.json   // status: "failed" with an error string, data: null
 manifest.sample.json     // fully populated EvidenceManifest v1.0
 record.sample.json       // StoredEvidenceRecord
 verification.ok.json
@@ -215,7 +214,7 @@ Keep it obviously fictional. Do not clone a real product's branding.
 
 - `tests/integration/` — the full path against fixtures: build manifest → lock → store → list → verify → export. Assert the PDF and ZIP are produced and non-trivially sized; assert the ZIP contains all six entries.
 - **Copy review pass:** read every user-facing string in the popup, the vault, the PDF, and the README against spec §36's "never claim" list. Anything matching "court-admissible", "proves", "everything is local", "recovers deleted messages", "identifies the sender" gets rewritten. Run this with all three of you in the room — it is a 30-minute pass that protects the whole project.
-- `docs/demo-script.md` — a timed walkthrough: capture on the demo page → consent → result → vault → detail → verify ✓ → tamper → verify ❌ → restore → verify ✓ → export PDF. Include a rehearsed fallback where the AI provider is switched to `demo` so a dead network cannot break the presentation.
+- `docs/demo-script.md` — a timed walkthrough: one-click preserve on the demo page → result → vault → detail → verify ✓ → tamper → verify ❌ → restore → verify ✓ → export PDF. Include a rehearsed fallback where the AI provider is switched to `demo` so a dead network cannot break the presentation.
 - README: install, build, load unpacked, start the bridge, configure the key, run tests.
 
 ---
@@ -244,7 +243,7 @@ Keep it obviously fictional. Do not clone a real product's branding.
 
 You **consume** `StoredEvidenceRecord` and `VerificationResult`, and you render all three `ExtractionResult.status` values.
 
-- Render `ok`, `failed` and `skipped` as three genuinely different states. `skipped` is a legitimate, complete preservation — **do not style it as an error**. A user who chose `PRESERVE WITHOUT AI` should feel they did something normal, because they did.
+- Render `ok` and `failed` as genuinely different states. A `failed` extraction is still a complete, locked preservation — style it as a missing detail, **not as a failed capture**. The screenshot, hashes and signature are all intact, and the user must be able to see that at a glance.
 - `VerificationResult.details[]` strings come from Role B. Agree the wording once; do not parse or rewrite them in the UI.
 - If you need a new field to render something, ask for it in the daily sync. Do not derive it locally from data that also gets hashed — a display-only transform that leaks back into the manifest is a hash bug.
 
@@ -252,7 +251,7 @@ You **consume** `StoredEvidenceRecord` and `VerificationResult`, and you render 
 
 ## 6. Testing your slice
 
-- **Fixture rendering:** every UI state has a fixture — empty vault, one record, 50 records, `ok`/`failed`/`skipped` extraction, `VERIFIED`/`MODIFIED`/`ERROR` verification, a record with `null` platform and `null` contact. Every one of these must render without a crash and without a blank region.
+- **Fixture rendering:** every UI state has a fixture — empty vault, one record, 50 records, `ok`/`failed` extraction, `VERIFIED`/`MODIFIED`/`ERROR` verification, a record with `null` platform and `null` contact. Every one of these must render without a crash and without a blank region.
 - **Performance:** a 50-record vault list renders fast and does not decrypt anything. Assert `list()` returns no ciphertext fields.
 - **Memory:** open and close 20 detail views; object URLs are revoked (check `chrome://` task manager or count live URLs in a test harness).
 - **Export:** the PDF opens in a real PDF reader; the ZIP extracts on the command line; the ZIP's `manifest.json` byte-matches the canonicalised manifest in the vault.

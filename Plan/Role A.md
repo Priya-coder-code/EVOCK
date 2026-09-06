@@ -1,7 +1,7 @@
 # Role A — Capture & Intelligence
 
 **Slice:** The front half of the pipeline — everything from "user clicks the extension" to "we have a `CaptureResult` and an `ExtractionResult`".
-**Owns:** the extension shell, the MV3 service-worker orchestrator, the popup + consent flow, screenshot capture, the extraction provider architecture, the vision integration, and the local API-key bridge.
+**Owns:** the extension shell, the MV3 service-worker orchestrator, the popup, screenshot capture, the extraction provider architecture, the vision integration, and the local API-key bridge.
 **Hands off to:** Role B (evidence core) via `CaptureResult` + `ExtractionResult`.
 **Depends on:** nothing upstream. This role can start immediately with zero blockers.
 
@@ -64,7 +64,7 @@ Permission rationale — you should be able to defend each one:
 |---|---|---|
 | `activeTab` | Grants screenshot access to the current tab **only after the user clicks the extension**. | We deliberately avoid `<all_urls>` — a tool for abuse victims must not request permanent read access to every site they visit. |
 | `scripting` | Injects a tiny context reader for tab title / visible URL, and leaves room for future scroll-stitched capture. | No persistent content script on every page. |
-| `storage` | Settings only: consent state, provider choice, bridge URL. | Evidence never goes here — that is Role B's IndexedDB. |
+| `storage` | Settings only: provider choice, bridge URL. | Evidence never goes here — that is Role B's IndexedDB. |
 | `downloads` | Saves the exported PDF/ZIP (used by Role C, declared here). | — |
 | `unlimitedStorage` | Screenshots are large; a vault of 50 incidents will exceed the default IndexedDB quota. | — |
 | `host_permissions: localhost:8787` | Lets the extension call the local bridge. | The extension never gets permission to call OpenRouter directly — that is the whole point of the bridge. |
@@ -92,39 +92,23 @@ Implementation notes:
 
 **Done when:** clicking Preserve produces a `CaptureResult` matching §5.1 exactly, logged to the worker console, on at least three real sites plus the local demo page.
 
-### A3 — Popup and consent flow (P1–P2)
+### A3 — Popup (P1–P2)
 
-Three screens in one popup, no router needed — just show/hide sections.
+**Preserving evidence is one click.** The user clicks `PRESERVE EVIDENCE` and the entire pipeline runs — capture, AI extraction, hash, sign, timestamp, encrypt, store — with no dialog, disclosure, or confirmation step anywhere in it. Evidence is time-sensitive; anything between the click and the capture is a window in which the content can be deleted.
+
+Two screens in one popup, no router needed — just show/hide sections.
 
 **Screen 1 — Ready**
 ```text
 EVOCK
 Current page: web.whatsapp.com
+
 [ PRESERVE EVIDENCE ]
-[ Open Vault ]
+
+[ Open Vault ]   [ Settings ]
 ```
 
-**Screen 2 — Consent** (this is the ethically important screen)
-```text
-PRESERVE EVIDENCE
-
-A screenshot of the current browser view will be sent to
-the configured vision service to extract visible details.
-
-The screenshot is stored encrypted on this device either way.
-
-[ ANALYZE & PRESERVE ]
-[ PRESERVE WITHOUT AI ]
-[ Cancel ]
-```
-
-Copy rules for this screen — get these wrong and the product is dishonest:
-- Say *where the screenshot goes*, plainly.
-- Never write "everything happens locally" — it is false when the vision path is used (spec §14, §36).
-- `PRESERVE WITHOUT AI` must be an equally prominent button, not a small link. It is a first-class path, not a fallback.
-- The choice is **not** remembered by default. Offer "remember my choice" as an explicit opt-in checkbox.
-
-**Screen 3 — Progress + result.** Render the `PRESERVE_PROGRESS` stages as a live checklist:
+**Screen 2 — Progress + result.** Clicking Preserve goes straight here, with nothing in between. Render the `PRESERVE_PROGRESS` stages as a live checklist:
 
 ```text
 ✓ Screenshot captured
@@ -141,7 +125,11 @@ Copy rules for this screen — get these wrong and the product is dishonest:
 
 When extraction fails, that line must read `⚠ AI extraction unavailable — screenshot preserved` in a **non-alarming** style, and the rest of the checklist must still complete. This is the visual proof of Rule 2.
 
-**Done when:** all three screens work, both consent paths reach a result screen, and killing the bridge mid-run produces the degraded-but-successful outcome.
+**Settings** — a small panel, not a wizard:
+- Vision provider / model
+- Bridge URL + a health indicator
+
+**Done when:** one click on `PRESERVE EVIDENCE` completes a full preservation with no intermediate screen of any kind, and killing the bridge mid-run produces the degraded-but-successful outcome.
 
 ### A4 — Extraction provider architecture (P2)
 
@@ -155,14 +143,13 @@ The interface comes before any provider:
  * @property {(capture: CaptureResult) => Promise<ExtractionResult>} extract
  */
 
-export function getProvider(id) { /* "demo" | "vision" | "none" */ }
+export function getProvider(id) { /* "demo" | "vision" */ }
 ```
 
 Build the providers in this order — **demo first**, deliberately:
 
 1. **`demo-provider.js`** — returns a fixed, valid `ExtractionResult` after a ~600 ms simulated delay. This unblocks Roles B and C immediately and guarantees a demo that cannot fail on stage.
 2. **`vision-provider.js`** — POSTs to the local bridge, not to OpenRouter.
-3. **`none`** — returns `{ provider: "none", data: null, status: "skipped" }` for the no-AI path.
 
 The provider selector reads from `chrome.storage.local`, so switching providers is a settings change, not a code change.
 
@@ -220,12 +207,14 @@ Why a bridge at all: an API key inside a distributed extension is public — any
 The single function that runs the pipeline. You own the file; Roles B and C provide the functions you call.
 
 ```js
-async function preserve({ withAI }) {
+async function preserve() {
+  // No prompt of any kind here by design: the Preserve click runs the whole pipeline.
   emit("capture");
   const capture = await captureVisibleTab();
 
   emit("extract");
-  const provider = withAI ? getProvider(await settings.providerId) : getProvider("none");
+  const { providerId } = await settings.get();
+  const provider = getProvider(providerId);
   const extraction = await provider.extract(capture).catch(toFailedResult);
 
   // everything below is Role B's API — you call it, you do not implement it
@@ -245,7 +234,7 @@ Orchestrator rules:
 - The record is written to IndexedDB **once, at the end**. No partial records in the vault, ever.
 - Wrap the whole thing so that if *anything* after capture fails, you still attempt a minimal "screenshot-only" preservation before surfacing the error. Losing a capture is the worst possible outcome for this product.
 
-**Done when:** both consent paths complete end-to-end with real crypto and real storage, and killing the bridge, the network, or the AI mid-run still yields a stored, verifiable record.
+**Done when:** a single click completes end-to-end with real crypto and real storage, and killing the bridge, the network, or the AI mid-run still yields a stored, verifiable record.
 
 ---
 
@@ -255,9 +244,9 @@ Orchestrator rules:
 |---|---|---|
 | **Chromium MV3 extension APIs** | The whole shell | Only an extension can screenshot another site's tab; MV3 is the only version Chrome accepts for new extensions |
 | **`chrome.tabs.captureVisibleTab()`** | The screenshot itself | Produces the real pixels the victim saw — our original artifact. No DOM dependency |
-| **`activeTab` permission model** | Capture authorisation | Grants access only on explicit user gesture, which matches EVOCK's consent-first ethic and avoids requesting all-site access from an at-risk user |
+| **`activeTab` permission model** | Capture authorisation | Grants access only on explicit user gesture — the Preserve click is itself the authorisation — and avoids requesting all-site access from an at-risk user |
 | **`createImageBitmap`** | True screenshot dimensions | Window size ≠ captured image size; the manifest must record the real thing |
-| **`chrome.storage.local`** | Settings, provider choice, consent preference | Small structured config, synchronous-ish access from both popup and worker. Not for evidence |
+| **`chrome.storage.local`** | Settings, provider choice, bridge URL | Small structured config, synchronous-ish access from both popup and worker. Not for evidence |
 | **`chrome.storage.session`** | In-flight pipeline state | Survives MV3 service-worker termination without persisting sensitive data to disk |
 | **`chrome.runtime.sendMessage`** | Popup ↔ worker protocol | The standard MV3 IPC; lets the popup close without killing the pipeline |
 | **OpenRouter API** | Vision-language extraction | One endpoint, many models. If a model is rate-limited or deprecated, we change a config string instead of rewriting an integration |
@@ -275,7 +264,7 @@ You **produce** `CaptureResult` (§5.1) and `ExtractionResult` (§5.2). Two peop
 
 - If a field needs to change, raise it in the daily sync and change `shared/types.js` in a PR that all three approve.
 - Never add a field that is sometimes present. Absent data is `null`, always. Optional-vs-missing is a hashing bug waiting to happen.
-- `ExtractionResult.status` must be exactly one of `ok` / `failed` / `skipped`. Role C renders different UI for each; Role B stores all three identically.
+- `ExtractionResult.status` must be exactly one of `ok` / `failed`. Role C renders different UI for each; Role B stores both identically.
 
 ---
 
@@ -292,9 +281,8 @@ You **produce** `CaptureResult` (§5.1) and `ExtractionResult` (§5.2). Two peop
 
 1. Extension loads clean in Chrome with no console errors.
 2. `PRESERVE EVIDENCE` produces a spec-exact `CaptureResult` on real sites.
-3. Consent screen states the privacy trade-off accurately and offers both paths equally.
-4. `ANALYZE & PRESERVE` yields validated, normalised structured metadata.
-5. `PRESERVE WITHOUT AI` yields a complete record with `status: "skipped"`.
+3. Preserving is one click — no dialog, disclosure, or confirmation step anywhere between the click and the stored record.
+4. AI extraction runs on every preservation and yields validated, normalised structured metadata; when it fails, the record is still complete with `status: "failed"`.
 6. Every AI failure mode degrades to a preserved record, never to a lost capture.
 7. No API key exists anywhere in `extension/` or in git history.
 8. The bridge binds to localhost only, restricts CORS to the extension, and logs no image data.

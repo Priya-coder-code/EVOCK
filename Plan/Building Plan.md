@@ -27,13 +27,11 @@ A Chromium Manifest V3 browser extension that does this, end to end:
 ```text
 User is on a page with abusive content
         ↓
-Clicks EVOCK → [ PRESERVE EVIDENCE ]
-        ↓
-Consent screen → [ ANALYZE & PRESERVE ] or [ PRESERVE WITHOUT AI ]
+Clicks EVOCK → [ PRESERVE EVIDENCE ]        ← one click, no prompts at all
         ↓
 Real screenshot of the visible tab
         ↓
-(optional) Vision-language model extracts visible info → structured JSON
+Vision-language model extracts visible info → structured JSON
         ↓
 Evidence Manifest (screenshot ref + derived metadata + capture context)
         ↓
@@ -53,7 +51,8 @@ Export → PDF report (human) + ZIP package (machine)
 Two hard architectural rules that everyone must respect, everywhere in the codebase:
 
 - **Rule 1 — The screenshot is the original artifact.** AI output is *derived metadata*. Never overwrite, never substitute, never "clean up" the screenshot based on the AI result.
-- **Rule 2 — Preservation must never depend on AI.** If OpenRouter is down, rate-limited, or the user declines consent, `PRESERVE WITHOUT AI` must still produce a fully hashed, signed, encrypted, stored, verifiable evidence record. AI failure is a degraded field, not a failed capture.
+- **Rule 2 — Preservation must never depend on AI.** If OpenRouter is down, rate-limited, or the bridge is unreachable, the pipeline must still produce a fully hashed, signed, encrypted, stored, verifiable evidence record. AI failure is a degraded field, not a failed capture.
+- **Rule 3 — Preserving is one click.** `PRESERVE EVIDENCE` runs the whole pipeline end to end with no prompts, dialogs, or confirmation steps anywhere. Evidence is time-sensitive; anything between the user's click and the capture is a chance for the content to disappear.
 
 ---
 
@@ -70,7 +69,8 @@ EVOCK/
 │   │   │   └── service-worker.js     # orchestrator: owns the preserve pipeline
 │   │   ├── popup/
 │   │   │   ├── popup.html
-│   │   │   ├── popup.js              # Preserve / consent / result screens
+│   │   │   ├── popup.js              # Preserve / progress / result screens
+│   │   │   ├── settings.js           # provider, bridge URL
 │   │   │   └── popup.css
 │   │   ├── vault/
 │   │   │   ├── vault.html            # full-page vault + timeline + verify + export
@@ -137,9 +137,9 @@ EVOCK/
 
 | Tool | Why |
 |---|---|
-| **`chrome.tabs.captureVisibleTab()`** | Produces a real PNG/JPEG of the visible viewport — the exact pixels the victim saw. This is our original artifact. Requires the `activeTab` permission, which is granted only on explicit user action — which matches our consent-first design. |
+| **`chrome.tabs.captureVisibleTab()`** | Produces a real PNG/JPEG of the visible viewport — the exact pixels the victim saw. This is our original artifact. Requires the `activeTab` permission, which is granted only on explicit user action — the Preserve click is itself that action. |
 | **`chrome.scripting` / content script** (minimal) | Only to read page context (title, visible URL) and to support future scroll-stitched capture. We deliberately **do not** use DOM scraping as the extraction path (see §3.3). |
-| **`chrome.storage.local`** | Small config only: consent state, selected provider, bridge URL, extension settings. Not for evidence. |
+| **`chrome.storage.local`** | Small config only: selected provider, bridge URL. Not for evidence. |
 
 ### 3.3 AI extraction
 
@@ -212,9 +212,9 @@ Phases are ordered by dependency. The *order* is what matters.
 | **P0 — Foundation** | Repo, Vite build, MV3 loads in Chrome, contracts frozen, ESLint/Vitest running | `npm run build` produces a loadable unpacked extension; `docs` contracts agreed by all 3; `shared/types.js` committed |
 | **P1 — Vertical slice** | Capture a real screenshot → hash it → store it → show it in the vault. **No AI, no signing, no encryption yet.** | Clicking Preserve on any page stores a record you can reopen and see |
 | **P2 — Parallel depth** | Extraction layer, full crypto lock, vault/timeline UI all built against the frozen contracts | Each module passes its own unit tests in isolation |
-| **P3 — Integration** | Wire the three slices together through the service worker orchestrator | Full pipeline works with both `ANALYZE & PRESERVE` and `PRESERVE WITHOUT AI` |
+| **P3 — Integration** | Wire the three slices together through the service worker orchestrator | One click on `PRESERVE EVIDENCE` runs the full pipeline; a failed AI call still yields a complete record |
 | **P4 — Verify + Export** | Verification screen, tamper demo, PDF report, ZIP package | The tamper demo (§18 of spec) reproducibly flips ✓ → ❌ and back |
-| **P5 — Hardening + demo** | Error states, empty states, consent copy review, limitations copy, demo script, README | A stranger can install it and complete a preservation without guidance |
+| **P5 — Hardening + demo** | Error states, empty states, limitations copy, demo script, README | A stranger can install it and complete a preservation without guidance |
 
 **The P1 vertical slice is the highest-value milestone.** Get one boring end-to-end path working before anyone builds depth. It de-risks integration and gives every role a real object to develop against.
 
@@ -259,16 +259,16 @@ These live in `extension/src/shared/types.js` as JSDoc typedefs. Nobody changes 
  * @property {string|null} date
  *
  * @typedef {Object} ExtractionResult
- * @property {"demo"|"vision"|"none"} provider
+ * @property {"demo"|"vision"} provider
  * @property {string|null} model              // e.g. "openrouter/<model-id>"
  * @property {string|null} extractedAt        // ISO-8601
- * @property {ExtractedData|null} data        // null when provider === "none"
- * @property {"ok"|"failed"|"skipped"} status
+ * @property {ExtractedData|null} data        // null when status === "failed"
+ * @property {"ok"|"failed"} status
  * @property {string|null} error              // human-readable failure reason
  */
 ```
 
-> `status: "skipped"` is what `PRESERVE WITHOUT AI` produces. `status: "failed"` is what an API error produces. **Both still result in a complete, locked evidence record.**
+> `status: "failed"` is what an API error, a timeout or an unreachable bridge produces. **It still results in a complete, locked evidence record** — the screenshot, hashes, signature and encryption are unaffected.
 
 ### 5.3 EvidenceManifest v1.0 — the thing that gets hashed and signed
 
@@ -366,7 +366,8 @@ The `signature` block and `manifest_hash` are excluded from their own input — 
 All cross-context calls go through `chrome.runtime.sendMessage` with a `{ type, payload }` envelope. Types live in `shared/messages.js`:
 
 ```text
-PRESERVE_START      { withAI: boolean }        → { evidence_id }
+PRESERVE_START      { }                        → { evidence_id }
+                    // no payload: settings decide whether AI extraction runs
 PRESERVE_PROGRESS   { stage, ok, error }       (worker → popup, streamed)
 LIST_EVIDENCE       { }                        → StoredEvidenceRecord[] (no ciphertext)
 GET_EVIDENCE        { evidence_id }            → { manifest, screenshotObjectUrl }
@@ -388,7 +389,7 @@ The split follows the pipeline's natural seams. Each slice is roughly equal in d
 ┌─────────────────────────────────────────────────────────────┐
 │  ROLE A — CAPTURE & INTELLIGENCE                            │
 │  Extension shell, MV3, service-worker orchestrator,         │
-│  popup + consent flow, screenshot capture,                  │
+│  popup, screenshot capture,                                 │
 │  extraction provider architecture, OpenRouter vision        │
 │  integration, prompt design, JSON schema validation,        │
 │  local Node bridge (API key security)                       │
@@ -446,7 +447,7 @@ Every role develops against these fixtures until the real upstream module lands.
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Hash mismatch caused by non-deterministic JSON | False "MODIFICATION DETECTED" — destroys the demo and the product claim | Canonicalisation is written first, unit-tested against key-order permutations, and used by *both* the hasher and the verifier through the same function |
-| OpenRouter down / rate-limited / model deprecated | Live demo failure | `DemoExtractionProvider` + `PRESERVE WITHOUT AI` path + provider is a config string, not a hardcode |
+| OpenRouter down / rate-limited / model deprecated | Live demo failure | `DemoExtractionProvider` + automatic degradation to `status: "failed"` without blocking preservation + provider is a config string, not a hardcode |
 | API key leaks into the repo | Real security incident | Key lives only in `bridge/.env`; `.env` in `.gitignore`; the extension never contains a key; add a pre-commit grep for `sk-` / `or-` prefixes |
 | MV3 service worker terminates mid-pipeline | Half-written evidence records | Keep the pipeline short; persist the record only once, atomically, at the end; if a long AI call is needed, hold state in `chrome.storage.session` and resume |
 | `CryptoKey` lost → all past evidence unverifiable | Catastrophic for the user | Export the public key into every manifest so verification never needs the vault; offer a key-backup export in the vault UI |
@@ -461,14 +462,13 @@ Every role develops against these fixtures until the real upstream module lands.
 The build is complete when a person who has never seen the code can:
 
 1. Load the unpacked extension into Chrome.
-2. Open any page, click EVOCK, and see a consent screen that honestly states the screenshot will be sent for analysis.
-3. Choose **ANALYZE & PRESERVE** and get a record with structured metadata — or choose **PRESERVE WITHOUT AI** and get an equally complete, equally locked record.
-4. Open the vault and see the incident in a chronological timeline.
-5. Open one record and see the screenshot, the derived metadata (clearly labelled as derived), the hashes, the signature status, and the timestamp status (honestly labelled `device time`).
-6. Click **Verify** and see ✓ INTEGRITY VERIFIED.
-7. Run the tamper demo, click Verify again, and see ❌ MODIFICATION DETECTED with the specific field that changed.
-8. Restore, verify again, and see ✓ again.
-9. Export a PDF report and a ZIP package, and open both outside the browser.
-10. Read a Limitations section in the UI that accurately states what EVOCK cannot establish.
+2. Open any page, click EVOCK, click **PRESERVE EVIDENCE** once, and get a complete record with structured metadata — with no prompts at any point.
+3. Open the vault and see the incident in a chronological timeline.
+4. Open one record and see the screenshot, the derived metadata (clearly labelled as derived), the hashes, the signature status, and the timestamp status (honestly labelled `device time`).
+5. Click **Verify** and see ✓ INTEGRITY VERIFIED.
+6. Run the tamper demo, click Verify again, and see ❌ MODIFICATION DETECTED with the specific field that changed.
+7. Restore, verify again, and see ✓ again.
+8. Export a PDF report and a ZIP package, and open both outside the browser.
+9. Read a Limitations section in the UI that accurately states what EVOCK cannot establish.
 
-If all ten hold with the AI service switched off, the architecture is correct.
+If all nine hold with the AI service unreachable, the architecture is correct.
