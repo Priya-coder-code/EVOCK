@@ -426,6 +426,63 @@ body {
   flex-shrink: 0;
 }
 
+/* Extracted Messages List */
+.extracted-messages-container {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.extracted-msg-empty {
+  font-size: 11px;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.extracted-msg {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.extracted-msg-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.extracted-msg-sender {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.extracted-msg-type {
+  font-size: 9px;
+  background-color: #f1f5f9;
+  color: #64748b;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.extracted-msg-ts {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-left: auto;
+}
+
+.extracted-msg-text {
+  font-size: 12px;
+  color: #1e293b;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 /* Settings View */
 .settings-header {
   display: flex;

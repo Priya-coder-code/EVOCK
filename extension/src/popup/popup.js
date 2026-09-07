@@ -44,6 +44,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const extractContact = document.getElementById("extract-contact");
   const extractMessagesCount = document.getElementById("extract-messages-count");
   const extractTime = document.getElementById("extract-time");
+  const extractMessagesList = document.getElementById("extract-messages-list");
 
   // Settings Elements
   const settingProvider = document.getElementById("setting-provider");
@@ -195,6 +196,33 @@ document.addEventListener("DOMContentLoaded", async () => {
             extractContact.textContent = extraction.data.contact_name || "N/A";
             extractMessagesCount.textContent = `${extraction.data.messages?.length || 0} message(s)`;
             extractTime.textContent = extraction.data.visible_time || "N/A";
+
+            // Render extracted messages
+            const msgs = extraction.data.messages || [];
+            const contactName = extraction.data.contact_name || "Unknown";
+            if (msgs.length === 0) {
+              extractMessagesList.innerHTML = '<div class="extracted-msg-empty">No messages extracted</div>';
+            } else {
+              extractMessagesList.innerHTML = msgs.map((m) => {
+                // Determine display label: incoming = other person's message, outgoing = your message
+                let label;
+                if (m.type === "incoming") {
+                  label = contactName;
+                } else if (m.type === "outgoing") {
+                  label = "You";
+                } else {
+                  label = m.sender || "Unknown";
+                }
+                const text = m.text || "";
+                const ts = m.visible_timestamp ? `<span class="extracted-msg-ts">${m.visible_timestamp}</span>` : "";
+                return `<div class="extracted-msg">
+                  <div class="extracted-msg-header">
+                    <span class="extracted-msg-sender">${label}</span>${ts}
+                  </div>
+                  <div class="extracted-msg-text">${text}</div>
+                </div>`;
+              }).join("");
+            }
           } else {
             // Rule 2: Degradation is non-alarming. Capture remains preserved and valid.
             stageExtraction.className = "stage-item stage-degraded";
