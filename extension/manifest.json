@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "EVOCK",
+  "version": "0.1.0",
+  "description": "Digital evidence preservation for online abuse.",
+  "action": {
+    "default_popup": "src/popup/popup.html"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "http://localhost:8787/*"
+  ]
+}

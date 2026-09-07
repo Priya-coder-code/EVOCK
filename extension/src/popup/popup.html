@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EVOCK</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-main">
+        <h1 class="brand-title">EVOCK</h1>
+        <span class="badge badge-dev">MVP Prototype</span>
+      </div>
+      <p class="brand-subtitle">Digital Evidence Preservation</p>
+    </header>
+
+    <!-- 1. Ready Screen -->
+    <section id="view-ready" class="view">
+      <div class="card page-card">
+        <div class="card-header">Current Page</div>
+        <div class="info-row">
+          <span class="info-label">Title</span>
+          <div id="ready-page-title" class="info-value">Loading...</div>
+        </div>
+        <div class="info-row">
+          <span class="info-label">URL</span>
+          <div id="ready-page-url" class="info-value">Loading...</div>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Domain</span>
+          <div id="ready-page-domain" class="info-value">Loading...</div>
+        </div>
+      </div>
+
+      <div class="actions-primary">
+        <button id="preserve-btn" class="btn btn-primary btn-large">PRESERVE EVIDENCE</button>
+      </div>
+
+      <div class="actions-secondary">
+        <button id="open-vault-btn" class="btn btn-secondary">Open Vault</button>
+        <button id="settings-btn" class="btn btn-secondary">Settings</button>
+      </div>
+
+      <div id="ready-notice" class="notice notice-info" hidden></div>
+    </section>
+
+    <!-- 2. Progress & Result Screen -->
+    <section id="view-progress" class="view" hidden>
+      <div class="section-heading">
+        <h2 id="progress-heading" class="section-title">Preserving Evidence</h2>
+      </div>
+
+      <!-- Pipeline Stages Checklist -->
+      <div class="pipeline-card">
+        <div class="card-header">Pipeline Stages</div>
+        <ul class="stage-list">
+          <li id="stage-capture-started" class="stage-item stage-completed">
+            <span class="stage-icon">✓</span>
+            <span class="stage-text">Capture started</span>
+          </li>
+          <li id="stage-screenshot" class="stage-item stage-active">
+            <span class="stage-icon">⏳</span>
+            <span class="stage-text">Capturing screenshot...</span>
+          </li>
+          <li id="stage-extraction" class="stage-item stage-pending">
+            <span class="stage-icon">○</span>
+            <span class="stage-text">AI extraction <span class="stage-tag">Pending</span></span>
+          </li>
+          <li class="stage-item stage-pending">
+            <span class="stage-icon">○</span>
+            <span class="stage-text">Integrity hash (SHA-256) <span class="stage-tag">Not yet implemented</span></span>
+          </li>
+          <li class="stage-item stage-pending">
+            <span class="stage-icon">○</span>
+            <span class="stage-text">Digital signature (ECDSA) <span class="stage-tag">Not yet implemented</span></span>
+          </li>
+          <li class="stage-item stage-pending">
+            <span class="stage-icon">○</span>
+            <span class="stage-text">Timestamp (device clock) <span class="stage-tag">Not yet implemented</span></span>
+          </li>
+          <li class="stage-item stage-pending">
+            <span class="stage-icon">○</span>
+            <span class="stage-text">Encryption (AES-GCM) <span class="stage-tag">Not yet implemented</span></span>
+          </li>
+          <li class="stage-item stage-pending">
+            <span class="stage-icon">○</span>
+            <span class="stage-text">Vault storage <span class="stage-tag">Not yet implemented</span></span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Capture Success Panel -->
+      <div id="capture-success-panel" class="card result-card" hidden>
+        <div class="result-banner result-banner-success">
+          <span class="banner-icon">✓</span>
+          <span class="banner-text">Screenshot captured successfully</span>
+        </div>
+
+        <div class="screenshot-container">
+          <div class="screenshot-label">Captured Artifact:</div>
+          <div class="screenshot-wrapper">
+            <img id="screenshot-img" alt="Captured visible tab screenshot" class="screenshot-preview">
+          </div>
+        </div>
+
+        <!-- Capture Metadata -->
+        <div class="metadata-container">
+          <div class="card-header">Capture Context</div>
+          <div class="metadata-table">
+            <div class="meta-row">
+              <span class="meta-label">MIME Type:</span>
+              <span id="meta-mime" class="meta-val"></span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Dimensions:</span>
+              <span id="meta-dimensions" class="meta-val"></span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Captured At:</span>
+              <span id="meta-time" class="meta-val"></span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Domain:</span>
+              <span id="meta-domain" class="meta-val"></span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">URL:</span>
+              <span id="meta-url" class="meta-val"></span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Capture Method:</span>
+              <span id="meta-method" class="meta-val"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Extraction Metadata (Milestone A4) -->
+        <div id="extraction-panel" class="extraction-card margin-top" hidden>
+          <div class="card-header">AI Extraction (<span id="extract-provider-label"></span>)</div>
+          <div id="extract-success-view" hidden>
+            <div class="extract-success-notice">
+              <span class="success-icon">✓</span>
+              <span>AI extraction completed</span>
+            </div>
+            <div class="metadata-table margin-top-sm">
+              <div class="meta-row">
+                <span class="meta-label">Platform:</span>
+                <span id="extract-platform" class="meta-val"></span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">Contact:</span>
+                <span id="extract-contact" class="meta-val"></span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">Messages Extracted:</span>
+                <span id="extract-messages-count" class="meta-val"></span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">Visible Time:</span>
+                <span id="extract-time" class="meta-val"></span>
+              </div>
+            </div>
+          </div>
+          <div id="extract-failed-view" class="extract-degraded-notice" hidden>
+            <span class="degraded-icon">⚠</span>
+            <span>AI extraction unavailable — screenshot preserved without derived metadata.</span>
+          </div>
+        </div>
+
+        <button id="reset-btn" class="btn btn-secondary full-width margin-top">Preserve Another</button>
+      </div>
+
+      <!-- Capture Error Panel -->
+      <div id="capture-error-panel" class="card result-card" hidden>
+        <div class="result-banner result-banner-error">
+          <span class="banner-icon">✕</span>
+          <span class="banner-text">Screenshot capture failed</span>
+        </div>
+        <p id="error-message" class="error-description"></p>
+        <button id="try-again-btn" class="btn btn-primary full-width margin-top">TRY AGAIN</button>
+      </div>
+    </section>
+
+    <!-- 3. Settings Screen -->
+    <section id="view-settings" class="view" hidden>
+      <div class="settings-header">
+        <h2 class="section-title">Settings</h2>
+        <button id="settings-back-btn" class="btn btn-text">← Back</button>
+      </div>
+
+      <div class="card form-card">
+        <div class="form-group">
+          <label class="form-label" for="setting-provider">Extraction Provider</label>
+          <select id="setting-provider" class="form-input">
+            <option value="demo">Demo Provider (Offline deterministic)</option>
+            <option value="vision">Vision Provider (OpenRouter bridge — A5/A6)</option>
+          </select>
+          <span class="form-help">Switch extraction provider (Milestone A4)</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="setting-model">Vision Model</label>
+          <input type="text" id="setting-model" class="form-input" placeholder="Configured via bridge/.env" disabled>
+          <span class="form-help">Set OPENROUTER_MODEL in bridge/.env</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="setting-bridge">Local Bridge URL</label>
+          <input type="text" id="setting-bridge" class="form-input" value="http://localhost:8787/extract" disabled>
+          <span class="form-help">Local proxy (127.0.0.1:8787) holds OPENROUTER_API_KEY</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Bridge Status</label>
+          <div id="bridge-status-badge" class="badge badge-offline">Bridge: Not running</div>
+        </div>
+      </div>
+
+      <button id="settings-done-btn" class="btn btn-secondary full-width margin-top">Back to EVOCK</button>
+    </section>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

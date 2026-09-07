@@ -1,0 +1,21 @@
+# EVOCK .gitignore
+
+# Environment variables (contains secrets/API keys)
+bridge/.env
+.env
+.env.*
+!.env.example
+!bridge/.env.example
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Operating System & IDE files
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+__pycache__/
+*.pyc
