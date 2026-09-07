@@ -12,7 +12,7 @@
  * guaranteeing that screenshot preservation is never blocked by AI/bridge failures.
  */
 
-import { EXTRACTION_USER_PROMPT } from "./prompt.js";
+import { EXTRACTION_SYSTEM_PROMPT, EXTRACTION_USER_PROMPT } from "./prompt.js";
 import { validateAndNormalizeExtraction } from "./schema.js";
 
 export const DEFAULT_BRIDGE_URL = "http://localhost:8787/extract";
@@ -49,6 +49,7 @@ export class VisionExtractionProvider {
         },
         body: JSON.stringify({
           image: capture.screenshotDataUrl,
+          system: EXTRACTION_SYSTEM_PROMPT,
           prompt: EXTRACTION_USER_PROMPT
         })
       });

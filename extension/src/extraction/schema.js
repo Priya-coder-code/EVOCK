@@ -20,6 +20,25 @@ export const MAX_MESSAGES_LIMIT = 50;
 export const ALLOWED_MESSAGE_TYPES = new Set(["incoming", "outgoing", "unknown"]);
 
 /**
+ * Common model-output placeholders for "not visible / missing" that must be
+ * normalized to null for metadata fields. Message text is never altered.
+ */
+const NULL_PLACEHOLDER_PATTERN = /^(n\/?a|na|none|nil|unknown|-|n\/a)$/i;
+
+/**
+ * Normalizes a raw string field: trims, and converts missing/placeholder
+ * values to null.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function normalizeNullableString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || NULL_PLACEHOLDER_PATTERN.test(trimmed)) return null;
+  return trimmed;
+}
+
+/**
  * Strips Markdown code block formatting (e.g. ```json ... ```) and extracts
  * the inner JSON string defensively.
  *
@@ -115,10 +134,10 @@ export function validateAndNormalizeExtraction(rawOutput, options = {}) {
   }
 
   // Top-level field extraction with defensive type checks (numbers/booleans become null, not cast)
-  const platform = typeof parsed.platform === "string" ? (parsed.platform.trim() || null) : null;
-  const contact_name = typeof parsed.contact_name === "string" ? (parsed.contact_name.trim() || null) : null;
-  const visible_time = typeof parsed.visible_time === "string" ? (parsed.visible_time.trim() || null) : null;
-  const date = typeof parsed.date === "string" ? (parsed.date.trim() || null) : null;
+  const platform = normalizeNullableString(parsed.platform);
+  const contact_name = normalizeNullableString(parsed.contact_name);
+  const visible_time = normalizeNullableString(parsed.visible_time);
+  const date = normalizeNullableString(parsed.date);
 
   // messages must always be an array; coerce non-array types to []
   const rawMessages = Array.isArray(parsed.messages) ? parsed.messages : [];

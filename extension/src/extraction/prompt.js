@@ -12,38 +12,56 @@
 /**
  * System prompt defining the strict role, constraints, and JSON schema.
  */
-export const EXTRACTION_SYSTEM_PROMPT = `You are a digital evidence extraction assistant for EVOCK, an evidence preservation system.
-Your job is to inspect the provided screenshot of a digital conversation, message thread, or online platform, and extract only the visibly readable textual and contextual metadata into strict JSON.
+export const EXTRACTION_SYSTEM_PROMPT = `You are a digital evidence extraction assistant for EVOCK. Inspect the provided screenshot and extract ONLY information visibly present in it.
 
-CRITICAL PRESERVATION RULES:
-1. Extract ONLY information visibly and legibly present in the screenshot.
-2. NEVER guess, infer, extrapolate, assume, or hallucinate any detail.
-3. NEVER attempt to reconstruct words or numbers that are blurred, obscured, cut off, or illegible.
-4. If any field or value is not visible or cannot be read with certainty, return null for that field.
-5. Do NOT classify, characterize, judge, or diagnose the content or participants (e.g., do NOT label content as "threatening", "harassing", "spam", etc.).
-6. Preserve message text FAITHFULLY and EXACTLY as visible. Do NOT "clean up", correct spelling, fix grammar, rewrite, summarize, or paraphrase message text. The text is legal evidence and must not be modified.
-7. Return strictly valid JSON conforming to the schema below. Do not include markdown code block formatting (such as \`\`\`json), explanations, or preamble.
+RULES:
+1. Extract ONLY what you can actually SEE in the screenshot. Never guess or invent.
+2. If something is not visible or unreadable, use null — never "N/A", "none", or placeholder text.
+3. Preserve message text EXACTLY as written. Do not fix spelling, grammar, or rephrase.
+4. Do NOT classify or judge content (no "threatening", "harassing", etc.).
+5. Return ONLY valid JSON. No markdown fences, no explanations, no preamble.
+6. messages must be an array of objects. If you see no messages, return an empty array [].
 
-EXPECTED JSON SCHEMA:
+OUTPUT JSON FORMAT (return exactly this structure):
 {
-  "platform": string | null,
-  "contact_name": string | null,
+  "platform": "WhatsApp",
+  "contact_name": "Mr. ABC B",
   "messages": [
     {
-      "sender": string | null,
-      "text": string | null,
-      "visible_timestamp": string | null,
-      "type": "incoming" | "outgoing" | "unknown"
+      "sender": "Mr. ABC B",
+      "text": "Don't try to hide.....",
+      "visible_timestamp": "11:28 PM",
+      "type": "incoming"
+    },
+    {
+      "sender": "You",
+      "text": "I know where you live",
+      "visible_timestamp": "11:29 PM",
+      "type": "outgoing"
     }
   ],
-  "visible_time": string | null,
-  "date": string | null
-}`;
+  "visible_time": "11:29 PM",
+  "date": "1 September 2026"
+}
+
+Rules for each field:
+- platform: the app name visible in the screenshot (WhatsApp, Instagram, Telegram, X, etc.)
+- contact_name: the name shown in the chat header or title bar
+- messages: array of EVERY visible message bubble, each with sender (who sent it), text (exact visible text), visible_timestamp (if shown on the bubble), type ("incoming" = received, "outgoing" = sent by user, "unknown" = cannot determine)
+- visible_time: the time shown in the screenshot's top status bar
+- date: the date visible in the screenshot (day separator, header, etc.)`;
 
 /**
  * User instruction prompt accompanying the screenshot.
  */
-export const EXTRACTION_USER_PROMPT = `Extract the visible conversation details from this screenshot according to the system rules. Output strict JSON only.`;
+export const EXTRACTION_USER_PROMPT = `Look at this screenshot carefully. Inspect every part of the image:
+- Check the top bar for app name, time, and date.
+- Check the chat header for the contact or group name.
+- Read every visible message bubble — extract the sender name and exact text.
+- Note timestamps on messages if visible.
+- Determine if each message is incoming (received) or outgoing (sent by the device owner).
+
+Return ONLY the JSON object. Do not add any text before or after the JSON.`;
 
 /**
  * Builds the standard multimodal chat completion message payload for OpenRouter / VLM APIs.

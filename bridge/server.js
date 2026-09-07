@@ -51,7 +51,7 @@ try {
 
 const HOST = process.env.BRIDGE_HOST || "127.0.0.1";
 const PORT = parseInt(process.env.BRIDGE_PORT || "8787", 10);
-const DEFAULT_MODEL = "meta-llama/llama-3.2-11b-vision-instruct:free";
+const DEFAULT_MODEL = "qwen/qwen3-vl-30b-a3b-instruct";
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const REQUEST_TIMEOUT_MS = 30000; // 30 second timeout per Role A.md
 
@@ -156,6 +156,9 @@ async function handleExtract(req, res, bodyString) {
   }
 
   const model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL;
+  const systemPrompt =
+    body.system ||
+    "You are a digital evidence preservation assistant for EVOCK. Extract ONLY visibly present digital evidence in strict JSON. Never guess, infer, hallucinate, or alter message text.";
   const userPrompt =
     body.prompt ||
     "Extract visible digital conversation metadata from this screenshot into strict JSON.";
@@ -182,8 +185,7 @@ async function handleExtract(req, res, bodyString) {
         messages: [
           {
             role: "system",
-            content:
-              "You are a digital evidence preservation assistant for EVOCK. Extract ONLY visibly present digital evidence in strict JSON. Never guess, infer, hallucinate, or alter message text."
+            content: systemPrompt
           },
           {
             role: "user",
