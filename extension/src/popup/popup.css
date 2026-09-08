@@ -317,6 +317,13 @@ body {
   border: 1px solid #fecaca;
 }
 
+.preserved-id-line {
+  font-size: 11px;
+  color: #64748b;
+  margin: -4px 0 10px;
+  line-height: 1.4;
+}
+
 .screenshot-container {
   margin-bottom: 10px;
 }

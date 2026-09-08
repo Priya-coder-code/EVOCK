@@ -1,0 +1,232 @@
+/**
+ * EVOCK — service-worker orchestrator tests (Role A, A7).
+ *
+ * The real capture, extraction and evidence-core modules are mocked: this suite
+ * proves the SEQUENCING and the failure guarantees, not the internals of the
+ * steps (those have their own suites).
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadFixture } from "../helpers/fixtures.js";
+
+const capture = () => loadFixture("capture.sample");
+const extractionOk = () => loadFixture("extraction.ok.sample");
+
+// --- mocks -----------------------------------------------------------------
+const captureVisibleTab = vi.fn();
+const extract = vi.fn();
+const getProvider = vi.fn(() => ({ id: "vision", extract }));
+const getSelectedProviderId = vi.fn(async () => "vision");
+const lockEvidence = vi.fn();
+const verifyEvidence = vi.fn();
+const vaultList = vi.fn();
+
+vi.mock("../../extension/src/capture/capture.js", () => ({
+  captureVisibleTab: (...a) => captureVisibleTab(...a)
+}));
+vi.mock("../../extension/src/extraction/provider.js", async () => {
+  const actual = await vi.importActual("../../extension/src/extraction/provider.js");
+  return {
+    ...actual,
+    getProvider: (...a) => getProvider(...a),
+    getSelectedProviderId: (...a) => getSelectedProviderId(...a)
+  };
+});
+vi.mock("../../extension/src/evidence/index.js", () => ({
+  lockEvidence: (...a) => lockEvidence(...a),
+  verifyEvidence: (...a) => verifyEvidence(...a)
+}));
+vi.mock("../../extension/src/storage/vault-repo.js", () => ({
+  list: (...a) => vaultList(...a),
+  get: vi.fn(),
+  getDecryptedScreenshot: vi.fn()
+}));
+
+// --- chrome stub ---------------------------------------------------------
+let progressEvents;
+let sessionStore;
+
+function installChrome() {
+  progressEvents = [];
+  sessionStore = {};
+  vi.stubGlobal("chrome", {
+    runtime: {
+      sendMessage: vi.fn(async (msg) => {
+        if (msg?.type === "PRESERVE_PROGRESS") progressEvents.push(msg.payload);
+      })
+      // no onMessage → the module does not self-register a listener on import
+    },
+    storage: {
+      session: {
+        get: vi.fn(async (k) => ({ [k]: sessionStore[k] })),
+        set: vi.fn(async (obj) => Object.assign(sessionStore, obj)),
+        remove: vi.fn(async (k) => {
+          delete sessionStore[k];
+        })
+      }
+    }
+  });
+}
+
+let preserve;
+let handleMessage;
+
+beforeEach(async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  installChrome();
+  getProvider.mockReturnValue({ id: "vision", extract });
+  getSelectedProviderId.mockResolvedValue("vision");
+  ({ preserve, handleMessage } = await import(
+    "../../extension/src/background/service-worker.js"
+  ));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const stagesOf = () => progressEvents.map((e) => `${e.stage}:${e.ok ?? "active"}`);
+
+describe("preserve() — happy path", () => {
+  it("runs capture → extract → lock and returns the evidence id", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockResolvedValue(extractionOk());
+    lockEvidence.mockResolvedValue({ evidence_id: "NK-0007", manifest: {} });
+
+    const res = await preserve();
+
+    expect(res).toMatchObject({ ok: true, evidence_id: "NK-0007", degraded: false });
+    expect(lockEvidence).toHaveBeenCalledTimes(1);
+    expect(lockEvidence.mock.calls[0][0].extraction.status).toBe("ok");
+  });
+
+  it("emits a PRESERVE_PROGRESS event for every pipeline stage", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockResolvedValue(extractionOk());
+    // drive the lock progress bridge the way lockEvidence really does
+    lockEvidence.mockImplementation(async ({ emit }) => {
+      ["hash", "encrypt", "sign", "timestamp", "store"].forEach((s) => emit(s));
+      return { evidence_id: "NK-0008", manifest: {} };
+    });
+
+    await preserve();
+
+    for (const s of ["capture", "extract", "hash", "encrypt", "sign", "timestamp", "store"]) {
+      expect(progressEvents.some((e) => e.stage === s)).toBe(true);
+    }
+    // capture and store both reach a done state
+    expect(stagesOf()).toContain("capture:true");
+    expect(stagesOf()).toContain("store:true");
+  });
+
+  it("clears the session mirror after a successful run", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockResolvedValue(extractionOk());
+    lockEvidence.mockResolvedValue({ evidence_id: "NK-0009", manifest: {} });
+
+    await preserve();
+    expect(sessionStore["evock:inflight"]).toBeUndefined();
+  });
+});
+
+describe("preserve() — extraction failure never stops the pipeline", () => {
+  it("a thrown provider error becomes status:failed and lock still runs", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockRejectedValue(new Error("bridge offline"));
+    lockEvidence.mockResolvedValue({ evidence_id: "NK-0010", manifest: {} });
+
+    const res = await preserve();
+
+    expect(res.ok).toBe(true);
+    expect(res.evidence_id).toBe("NK-0010");
+    expect(res.extraction.status).toBe("failed");
+    expect(res.extraction.provider).toBe("vision"); // never "unknown" (deviation A)
+    expect(lockEvidence.mock.calls[0][0].extraction.status).toBe("failed");
+    const extractEvent = progressEvents.find((e) => e.stage === "extract" && e.ok === false);
+    expect(extractEvent).toBeTruthy();
+  });
+});
+
+describe("preserve() — screenshot-only fallback", () => {
+  it("retries once without the extraction payload when the first lock throws", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockResolvedValue(extractionOk());
+    lockEvidence
+      .mockRejectedValueOnce(new Error("manifest builder choked on the payload"))
+      .mockResolvedValueOnce({ evidence_id: "NK-0011", manifest: {} });
+
+    const res = await preserve();
+
+    expect(res).toMatchObject({ ok: true, evidence_id: "NK-0011", degraded: true });
+    expect(lockEvidence).toHaveBeenCalledTimes(2);
+    expect(lockEvidence.mock.calls[1][0].extraction.status).toBe("failed");
+  });
+
+  it("surfaces an error but still returns the capture when both locks fail", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockResolvedValue(extractionOk());
+    lockEvidence.mockRejectedValue(new Error("IndexedDB unavailable"));
+
+    const res = await preserve();
+
+    expect(res.ok).toBe(false);
+    expect(res.degraded).toBe(true);
+    expect(res.capture).toBeTruthy();
+    expect(res.error).toMatch(/IndexedDB unavailable/);
+    expect(sessionStore["evock:inflight"]).toBeUndefined();
+  });
+
+  it("does not retry when extraction had already failed (fault is downstream)", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockRejectedValue(new Error("bridge offline"));
+    lockEvidence.mockRejectedValue(new Error("crypto.subtle missing"));
+
+    const res = await preserve();
+
+    expect(res.ok).toBe(false);
+    expect(lockEvidence).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("preserve() — capture failure is the only fatal outcome", () => {
+  it("returns ok:false with no capture and never calls lock", async () => {
+    captureVisibleTab.mockRejectedValue(new Error("This page cannot be captured by browser extensions."));
+
+    const res = await preserve();
+
+    expect(res.ok).toBe(false);
+    expect(res.capture).toBeUndefined();
+    expect(res.error).toMatch(/cannot be captured/);
+    expect(lockEvidence).not.toHaveBeenCalled();
+    expect(stagesOf()).toContain("capture:false");
+  });
+});
+
+describe("handleMessage routing", () => {
+  it("PRESERVE_START resolves the pipeline result through sendResponse", async () => {
+    captureVisibleTab.mockResolvedValue(capture());
+    extract.mockResolvedValue(extractionOk());
+    lockEvidence.mockResolvedValue({ evidence_id: "NK-0012", manifest: {} });
+
+    const sendResponse = vi.fn();
+    const async = handleMessage({ type: "PRESERVE_START" }, {}, sendResponse);
+    expect(async).toBe(true);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, evidence_id: "NK-0012" });
+  });
+
+  it("LIST_EVIDENCE delegates to vaultRepo.list", async () => {
+    vaultList.mockResolvedValue([{ evidence_id: "NK-0001" }]);
+    const sendResponse = vi.fn();
+    handleMessage({ type: "LIST_EVIDENCE", payload: {} }, {}, sendResponse);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+    expect(sendResponse.mock.calls[0][0]).toEqual({ ok: true, items: [{ evidence_id: "NK-0001" }] });
+  });
+
+  it("ignores unknown message types", () => {
+    const sendResponse = vi.fn();
+    expect(handleMessage({ type: "NOPE" }, {}, sendResponse)).toBe(false);
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+});

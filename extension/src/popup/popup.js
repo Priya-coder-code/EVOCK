@@ -40,6 +40,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const stageList = document.getElementById("stage-list");
   const captureSuccessPanel = document.getElementById("capture-success-panel");
   const captureErrorPanel = document.getElementById("capture-error-panel");
+  const resultBanner = document.getElementById("result-banner");
+  const resultBannerIcon = document.getElementById("result-banner-icon");
+  const resultBannerText = document.getElementById("result-banner-text");
+  const preservedIdLine = document.getElementById("preserved-id-line");
   const errorMessageEl = document.getElementById("error-message");
   const screenshotImg = document.getElementById("screenshot-img");
   const resetBtn = document.getElementById("reset-btn");
@@ -243,51 +247,47 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = await chrome.runtime.sendMessage({ type: MSG.PRESERVE_START });
       clearTimeout(waitHintTimer);
 
-      if (!response || !response.ok || !response.capture) {
-        const errorMsg = response?.error || response?.message || "Failed to capture screenshot.";
-        handleCaptureFailure(errorMsg);
+      // No capture at all → there is nothing to preserve. This is the only
+      // truly fatal outcome.
+      if (!response || !response.capture) {
+        handleCaptureFailure(response?.error || response?.message || "Failed to capture screenshot.");
         return;
       }
 
-      const { capture, extraction } = response;
+      const { capture, extraction, evidence_id, degraded } = response;
+      const stored = response.ok === true && !!evidence_id;
 
-      // Capture done.
+      // Capture is in hand regardless of what happened downstream.
       if (stageStates.capture?.state !== "done") setStage("capture", "done", "");
-      progressHeading.textContent = "Preservation Captured";
+      renderCaptureMeta(capture);
+      renderExtractionResult(extraction);
 
-      screenshotImg.src = capture.screenshotDataUrl;
-      metaMime.textContent = capture.mimeType || "image/png";
-      metaDimensions.textContent = `${capture.width} × ${capture.height} px`;
-      metaTime.textContent = capture.capturedAt || "—";
-      metaDomain.textContent = capture.domain || "—";
-      metaUrl.textContent = capture.url || "—";
-      metaMethod.textContent = capture.captureMethod || "browser_extension.captureVisibleTab";
-
-      // Extraction result (derived metadata — never load-bearing).
-      if (extraction) {
-        extractionPanel.hidden = false;
-        extractProviderLabel.textContent = providerLabel(extraction.provider);
-
-        if (extraction.status === "ok" && extraction.data) {
-          if (stageStates.extract?.state !== "done") setStage("extract", "done", "");
-          extractFailedView.hidden = true;
-          extractSuccessView.hidden = false;
-          renderExtraction(extraction.data);
-        } else {
-          // Rule 2: non-alarming degradation. The capture is still preserved.
-          setStage("extract", "degraded", extraction.error || "");
-          extractSuccessView.hidden = true;
-          extractFailedView.hidden = false;
+      if (stored) {
+        // hash → encrypt → sign → timestamp → store all completed. The
+        // PRESERVE_PROGRESS stream usually paints these live; set them here too
+        // so a dropped event can't leave a stage looking stuck.
+        for (const s of ["hash", "encrypt", "sign", "timestamp", "store"]) {
+          if (stageStates[s]?.state !== "failed") setStage(s, "done", "");
         }
-      }
-
-      // Downstream stages are owned by the evidence-lock pipeline (Role B) and
-      // are not wired into this response yet. Say that honestly instead of
-      // showing them as done.
-      for (const s of ["hash", "sign", "timestamp", "encrypt", "store"]) {
-        if (stageStates[s]?.state === "pending") {
-          setStage(s, "pending", "Runs once the evidence-lock pipeline is connected.");
+        progressHeading.textContent = `Evidence Preserved — ${evidence_id}`;
+        setBanner("success", "✓", `EVIDENCE PRESERVED — ${evidence_id}`);
+        preservedIdLine.hidden = false;
+        preservedIdLine.textContent = degraded
+          ? "Stored. AI extraction was unavailable — the screenshot and its fingerprint are preserved."
+          : "Stored in the local vault, hashed, signed and encrypted.";
+      } else {
+        // Capture succeeded but the vault write did not. The screenshot bytes
+        // are shown below; they are not lost, but they are not yet sealed.
+        const active = PRESERVE_STAGES.find((s) => stageStates[s]?.state === "active");
+        if (active) setStage(active, "failed", "");
+        for (const s of ["hash", "encrypt", "sign", "timestamp", "store"]) {
+          if (stageStates[s]?.state === "pending") setStage(s, "failed", "");
         }
+        progressHeading.textContent = "Preservation Incomplete";
+        setBanner("error", "⚠", "Screenshot captured but not saved to the vault");
+        preservedIdLine.hidden = false;
+        preservedIdLine.textContent =
+          response.error || "The vault write failed. The screenshot below was not stored.";
       }
 
       captureSuccessPanel.hidden = false;
@@ -296,6 +296,42 @@ document.addEventListener("DOMContentLoaded", () => {
       handleCaptureFailure(error?.message || "Failed to communicate with the service worker.");
     }
   });
+
+  /** @param {"success"|"error"} kind */
+  function setBanner(kind, icon, text) {
+    resultBanner.className =
+      "result-banner " + (kind === "success" ? "result-banner-success" : "result-banner-error");
+    resultBannerIcon.textContent = icon;
+    resultBannerText.textContent = text;
+  }
+
+  function renderCaptureMeta(capture) {
+    screenshotImg.src = capture.screenshotDataUrl;
+    metaMime.textContent = capture.mimeType || "image/png";
+    metaDimensions.textContent = `${capture.width} × ${capture.height} px`;
+    metaTime.textContent = capture.capturedAt || "—";
+    metaDomain.textContent = capture.domain || "—";
+    metaUrl.textContent = capture.url || "—";
+    metaMethod.textContent = capture.captureMethod || "browser_extension.captureVisibleTab";
+  }
+
+  function renderExtractionResult(extraction) {
+    if (!extraction) return;
+    extractionPanel.hidden = false;
+    extractProviderLabel.textContent = providerLabel(extraction.provider);
+
+    if (extraction.status === "ok" && extraction.data) {
+      if (stageStates.extract?.state !== "done") setStage("extract", "done", "");
+      extractFailedView.hidden = true;
+      extractSuccessView.hidden = false;
+      renderExtraction(extraction.data);
+    } else {
+      // Rule 2: non-alarming degradation. The capture is still preserved.
+      setStage("extract", "degraded", extraction.error || "");
+      extractSuccessView.hidden = true;
+      extractFailedView.hidden = false;
+    }
+  }
 
   function renderExtraction(data) {
     extractPlatform.textContent = data.platform || "—";

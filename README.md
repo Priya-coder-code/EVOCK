@@ -148,8 +148,22 @@ to `127.0.0.1:8787` only and refuses any non-loopback bind. Check it with
 `curl http://127.0.0.1:8787/health`; the popup's Settings screen shows the same
 status and the active model.
 
-If AI extraction is unavailable, preservation still completes — the screenshot
-and its integrity record are produced regardless (see **Fail gracefully**).
+### 3. Preserve
+
+Click **PRESERVE EVIDENCE**. One click runs the whole pipeline with no prompt in
+between: capture → AI extraction → hash → encrypt → sign → device timestamp →
+store. The popup shows each stage live and finishes on `EVIDENCE PRESERVED —
+NK-0001`. The record is written to the browser's IndexedDB vault, encrypted with
+AES-GCM and signed with a per-vault ECDSA P-256 key.
+
+If AI extraction is unavailable, preservation still completes — the screenshot,
+its hashes, signature and encryption are produced regardless (see **Fail
+gracefully**). If the vault write itself fails, the popup keeps the screenshot on
+screen and says so rather than losing it silently.
+
+The vault browsing / export UI is Role C's slice and is not built yet; stored
+records are reachable through the service worker's `LIST_EVIDENCE` /
+`GET_EVIDENCE` / `VERIFY_EVIDENCE` messages.
 
 ---
 

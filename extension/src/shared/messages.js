@@ -33,8 +33,13 @@ export const MSG = Object.freeze({
 });
 
 /**
- * PRESERVE_PROGRESS stages, in pipeline order. The popup renders these as a
+ * PRESERVE_PROGRESS stages, in true pipeline order. The popup renders these as a
  * live checklist and it is also the primary debugging surface.
+ *
+ * Order note (Role B deviation B, reconciled): encryption runs BEFORE signing.
+ * The AES-GCM IV lives inside the manifest (visual_artifact.encryption.iv), so it
+ * has to exist before the manifest is built, hashed and signed. The sequence the
+ * evidence core actually emits is hash → encrypt → sign → timestamp → store.
  * @readonly
  * @type {ReadonlyArray<string>}
  */
@@ -42,9 +47,9 @@ export const PRESERVE_STAGES = Object.freeze([
   "capture",
   "extract",
   "hash",
+  "encrypt",
   "sign",
   "timestamp",
-  "encrypt",
   "store"
 ]);
 
