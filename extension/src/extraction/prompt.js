@@ -68,36 +68,7 @@ Use only values visible in THIS screenshot; everything else is null. Copy no exa
 
 Return ONLY the JSON object — no text before or after it.`;
 
-/**
- * Builds the standard multimodal chat completion message payload for OpenRouter / VLM APIs.
- *
- * @param {string} screenshotDataUrl - The base64 data URL (e.g. "data:image/png;base64,...")
- * @returns {Array<{ role: string, content: string|Array<Object> }>}
- */
-export function buildExtractionMessages(screenshotDataUrl) {
-  if (!screenshotDataUrl || typeof screenshotDataUrl !== "string") {
-    throw new Error("screenshotDataUrl must be a non-empty string.");
-  }
-
-  return [
-    {
-      role: "system",
-      content: EXTRACTION_SYSTEM_PROMPT
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: EXTRACTION_USER_PROMPT
-        },
-        {
-          type: "image_url",
-          image_url: {
-            url: screenshotDataUrl
-          }
-        }
-      ]
-    }
-  ];
-}
+// The OpenRouter chat-completions payload (system + user text + image part) is
+// assembled by the local bridge in bridge/server.js, which is the single place
+// that talks to OpenRouter. The extension only sends it these two strings plus
+// the screenshot, so there is no client-side payload builder here.

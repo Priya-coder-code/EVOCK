@@ -163,7 +163,9 @@ class TestBridgeAndVision(unittest.TestCase):
             code = f.read()
         self.assertIn("class DemoExtractionProvider", code)
         self.assertIn('this.id = "demo"', code)
-        self.assertIn('status: "ok"', code)
+        # Demo output goes through the shared validator (-> status "ok"),
+        # so demo and vision return identically-shaped results.
+        self.assertIn("validateAndNormalizeExtraction", code)
         # Verify no fetch or localhost network calls in demo provider
         self.assertNotIn("fetch(", code)
         self.assertNotIn("8787", code)

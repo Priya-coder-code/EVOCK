@@ -20,10 +20,13 @@ export const MAX_MESSAGES_LIMIT = 50;
 export const ALLOWED_MESSAGE_TYPES = new Set(["incoming", "outgoing", "unknown"]);
 
 /**
- * Common model-output placeholders for "not visible / missing" that must be
- * normalized to null for metadata fields. Message text is never altered.
+ * Model-output placeholders for "not applicable / missing" that must be
+ * normalized to null for metadata fields, so the same screenshot always
+ * hashes the same. Deliberately narrow: "unknown" and "-" are NOT included -
+ * they can be a real visible value and the model is told to emit null itself.
+ * Message text is never altered.
  */
-const NULL_PLACEHOLDER_PATTERN = /^(n\/?a|na|none|nil|unknown|-|n\/a)$/i;
+const NULL_PLACEHOLDER_PATTERN = /^(n\/?a|none|nil|null)$/i;
 
 /**
  * Normalizes a raw string field: trims, and converts missing/placeholder
@@ -39,11 +42,14 @@ function normalizeNullableString(value) {
 }
 
 /**
- * Strips Markdown code block formatting (e.g. ```json ... ```) and extracts
- * the inner JSON string defensively.
+ * Strips Markdown code-block fences (```json ... ``` or ``` ... ```) from a raw
+ * model string. It does NOT trim to the outermost braces - that is a lossy
+ * salvage step only worth doing after a direct parse has already failed
+ * (see extractJsonObject), because a `}` inside a message string would
+ * otherwise truncate valid JSON.
  *
  * @param {string} text - Raw model string output
- * @returns {string} - Clean JSON string
+ * @returns {string} - The string with surrounding fences removed
  */
 export function stripMarkdownFences(text) {
   if (typeof text !== "string") {
@@ -52,24 +58,32 @@ export function stripMarkdownFences(text) {
 
   let cleaned = text.trim();
 
-  // Handle Markdown code block fences: ```json ... ``` or ``` ... ```
   const fenceRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/i;
   const match = cleaned.match(fenceRegex);
-  if (match && match[1]) {
+  if (match && match[1] != null) {
     cleaned = match[1].trim();
   } else if (cleaned.startsWith("```")) {
-    // If opening fence is present without matched closing fence
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
-  }
-
-  // If text contains preamble before first { or after last }, extract JSON object substring
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    cleaned = cleaned.substring(firstBrace, lastBrace + 1).trim();
+    // Opening fence without a matched closing fence.
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   }
 
   return cleaned;
+}
+
+/**
+ * Best-effort salvage: return the substring from the first "{" to the last "}"
+ * so prose-wrapped JSON can still be parsed. Lossy by nature - only call this
+ * once a direct JSON.parse has failed.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function extractJsonObject(text) {
+  if (typeof text !== "string") return null;
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) return null;
+  return text.slice(first, last + 1);
 }
 
 /**
@@ -104,19 +118,33 @@ export function validateAndNormalizeExtraction(rawOutput, options = {}) {
 
   let parsed = rawOutput;
 
-  // If raw output is a string, parse defensively
+  // If raw output is a string, parse defensively.
   if (typeof rawOutput === "string") {
-    const cleanedString = stripMarkdownFences(rawOutput);
+    const cleaned = stripMarkdownFences(rawOutput);
+    let didParse = false;
     try {
-      parsed = JSON.parse(cleanedString);
-    } catch (parseError) {
+      parsed = JSON.parse(cleaned);
+      didParse = true;
+    } catch {
+      // Direct parse failed - try salvaging a prose-wrapped object.
+      const salvaged = extractJsonObject(cleaned);
+      if (salvaged && salvaged !== cleaned) {
+        try {
+          parsed = JSON.parse(salvaged);
+          didParse = true;
+        } catch {
+          /* fall through to failure */
+        }
+      }
+    }
+    if (!didParse) {
       return {
         provider,
         model,
         extractedAt: now,
         data: null,
         status: "failed",
-        error: `Invalid JSON returned by model: ${parseError.message}`
+        error: "Invalid JSON returned by model."
       };
     }
   }
@@ -164,6 +192,10 @@ export function validateAndNormalizeExtraction(rawOutput, options = {}) {
   const normalizedMessages = [];
 
   for (const item of rawMessages) {
+    // Stop once the cap is reached - never build thousands of objects for a
+    // hallucinating model just to slice them off afterwards.
+    if (normalizedMessages.length >= MAX_MESSAGES_LIMIT) break;
+
     if (typeof item !== "object" || item === null || Array.isArray(item)) {
       continue;
     }

@@ -18,7 +18,7 @@
  * - message text is not rewritten or paraphrased
  */
 
-export function runTests(validateAndNormalizeExtraction, buildExtractionMessages, stripMarkdownFences) {
+export function runTests(validateAndNormalizeExtraction, EXTRACTION_SYSTEM_PROMPT, stripMarkdownFences) {
   const results = [];
 
   function test(name, fn) {
@@ -305,16 +305,43 @@ export function runTests(validateAndNormalizeExtraction, buildExtractionMessages
     );
   });
 
-  // 15. Prompt builder validation
-  test("15. buildExtractionMessages constructs valid chat completion payload", () => {
-    const testDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-    const messages = buildExtractionMessages(testDataUrl);
+  // 15. Prompt carries its load-bearing invariants (regression guard)
+  test("15. system prompt states the ordering, alignment and null rules", () => {
+    const p = String(EXTRACTION_SYSTEM_PROMPT).toLowerCase();
+    assert(p.includes("top") && p.includes("bottom"), "must state top-to-bottom order");
+    assert(p.includes("chronological"), "must state chronological order");
+    assert(p.includes("left") && p.includes("right"), "must define left/right alignment");
+    assert(p.includes("incoming") && p.includes("outgoing"), "must name both message types");
+    assert(p.includes("null"), "must instruct null for non-visible fields");
+    assert(p.includes("verbatim") || p.includes("exactly"), "must require verbatim text");
+    assert(p.includes("json"), "must require JSON output");
+  });
 
-    assert(Array.isArray(messages), "Messages should be array");
-    assertEqual(messages.length, 2, "Should have system and user messages");
-    assertEqual(messages[0].role, "system", "First message is system");
-    assertEqual(messages[1].role, "user", "Second message is user");
-    assertEqual(messages[1].content[1].image_url.url, testDataUrl, "Image URL correctly set");
+  // 16. Prose-wrapped JSON is salvaged; a stray brace in text does not truncate
+  test("16. salvage parses prose-wrapped JSON without corrupting brace-in-string", () => {
+    const wrapped = 'Sure! Here is the data:\n{"platform":"X","messages":[]}\nHope that helps.';
+    const r1 = validateAndNormalizeExtraction(wrapped);
+    assertEqual(r1.status, "ok", "prose-wrapped JSON should parse");
+    assertEqual(r1.data.platform, "X", "platform extracted from wrapped JSON");
+
+    const braceInText = '{"platform":"WhatsApp","contact_name":null,"messages":[' +
+      '{"sender":"A","text":"use } wisely","visible_timestamp":null,"type":"incoming"}],' +
+      '"visible_time":null,"date":null}';
+    const r2 = validateAndNormalizeExtraction(braceInText);
+    assertEqual(r2.status, "ok", "valid JSON with a brace inside a string still parses");
+    assertEqual(r2.data.messages[0].text, "use } wisely", "brace-in-string text preserved intact");
+  });
+
+  // 17. "unknown" / "-" are kept as real values, not nulled
+  test("17. narrow placeholder normalisation keeps 'unknown' and '-'", () => {
+    const r = validateAndNormalizeExtraction({
+      platform: "unknown", contact_name: "-", visible_time: "N/A", date: "none", messages: []
+    });
+    assertEqual(r.status, "ok", "status ok");
+    assertEqual(r.data.platform, "unknown", "'unknown' is a real visible value");
+    assertEqual(r.data.contact_name, "-", "'-' is a real visible value");
+    assertEqual(r.data.visible_time, null, "'N/A' still normalises to null");
+    assertEqual(r.data.date, null, "'none' still normalises to null");
   });
 
   return results;

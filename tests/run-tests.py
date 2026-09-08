@@ -27,7 +27,7 @@ jxa_script = f"""
 {prompt_code}
 {test_code}
 
-const results = runTests(validateAndNormalizeExtraction, buildExtractionMessages, stripMarkdownFences);
+const results = runTests(validateAndNormalizeExtraction, EXTRACTION_SYSTEM_PROMPT, stripMarkdownFences);
 JSON.stringify(results);
 """
 
