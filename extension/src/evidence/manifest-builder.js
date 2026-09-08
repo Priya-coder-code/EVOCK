@@ -49,6 +49,7 @@
  */
 
 import { dataUrlToBytes, sha256Bytes, sha256Canonical } from "../crypto/hash.js";
+import { getTimestampProvider } from "../crypto/timestamp.js";
 
 /** @type {"1.0"} */
 export const SCHEMA_VERSION = "1.0";
@@ -168,11 +169,15 @@ export async function buildManifest({
       signature: null,
       signed_at: null
     },
-    timestamp: {
-      device_capture_time: capture.capturedAt,
-      trusted_timestamp_status: "not_configured",
-      trusted_timestamp_token: null
-    }
+    // The timestamp block is produced by the device timestamp provider — the
+    // single place that constructs it — so nothing downstream needs to rebuild
+    // an identical block and risk it drifting out of sync with what was hashed.
+    // The provider also refuses a missing capture time, turning that into a
+    // failed preservation rather than a manifest silently missing the field.
+    timestamp: await getTimestampProvider("device").stamp({
+      hashHex: null,
+      deviceCaptureTime: capture.capturedAt
+    })
   };
 
   // 3. Manifest hash over the reduced object, then written back in.
