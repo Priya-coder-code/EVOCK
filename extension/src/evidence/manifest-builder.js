@@ -111,7 +111,7 @@ export async function buildManifest({
   const screenshot_hash = await sha256Bytes(screenshotBytes);
 
   // 2. Derived metadata, provenance included.
-  const ai_derived_metadata = {
+  const ai_derived_metadata = deepCopy({
     // The contract (Building Plan §5.2) says provider is "demo" | "vision".
     // It is passed through exactly as received and never rewritten here: this
     // value is hashed, so silently normalising it would make the manifest
@@ -123,7 +123,7 @@ export async function buildManifest({
     status: extraction.status,
     extracted_at: extraction.extractedAt ?? null,
     data: extraction.data ?? null
-  };
+  }, "ai_derived_metadata");
   const metadata_hash = await sha256Canonical(ai_derived_metadata);
 
   /** @type {import("../shared/types.js").EvidenceManifest} */
@@ -164,7 +164,7 @@ export async function buildManifest({
     },
     signature: {
       algorithm: "ECDSA-P256-SHA256",
-      public_key_jwk,
+      public_key_jwk: deepCopy(public_key_jwk, "public_key_jwk"),
       signature: null,
       signed_at: null
     },
@@ -241,6 +241,15 @@ export function attachSignature(manifest, { signature_b64, public_key_jwk, signe
       "attachSignature: manifest_hash must be computed before a signature is attached"
     );
   }
+  // An absent signature would canonicalise away and leave a record that fails
+  // verification with "signature invalid" — a misleading report of tampering on
+  // a record that was simply never signed.
+  if (typeof signature_b64 !== "string" || signature_b64.length === 0) {
+    throw new TypeError("attachSignature: signature_b64 is required");
+  }
+  if (typeof signed_at !== "string" || signed_at.length === 0) {
+    throw new TypeError("attachSignature: signed_at is required");
+  }
 
   manifest.signature = {
     algorithm: "ECDSA-P256-SHA256",
@@ -250,4 +259,27 @@ export function attachSignature(manifest, { signature_b64, public_key_jwk, signe
   };
 
   return manifest;
+}
+
+/**
+ * Deep-copy a value into the manifest.
+ *
+ * The manifest is hashed the moment it is built, so it must not share structure
+ * with the caller's objects: `lockEvidence` is handed a capture and an
+ * extraction that Role A's orchestrator still holds, and any later touch of
+ * those would silently invalidate hashes already computed — the first verify
+ * would then report MODIFIED on evidence nobody tampered with.
+ *
+ * @param {any} value
+ * @param {string} label field name, for the error message
+ * @returns {any}
+ */
+function deepCopy(value, label) {
+  try {
+    return structuredClone(value);
+  } catch (error) {
+    throw new TypeError(
+      `buildManifest: ${label} contains a value that cannot be stored (${error.message})`
+    );
+  }
 }

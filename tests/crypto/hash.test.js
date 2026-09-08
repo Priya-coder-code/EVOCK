@@ -127,3 +127,31 @@ describe("bytesToHex", () => {
     expect(bytesToHex(new Uint8Array([]))).toBe("");
   });
 });
+
+describe("bytesToHex — input validation", () => {
+  it("rejects a string instead of silently producing hex from characters", () => {
+    // "abc" previously produced "0a0b0c": each character was padded as if it
+    // were a byte value, which is silently wrong output rather than an error.
+    expect(() => bytesToHex("abc")).toThrow(TypeError);
+  });
+
+  it("rejects values that are not byte sources", () => {
+    expect(() => bytesToHex([1, 2, 3])).toThrow(TypeError);
+    expect(() => bytesToHex(null)).toThrow(TypeError);
+    expect(() => bytesToHex({ 0: 255, length: 1 })).toThrow(TypeError);
+  });
+
+  it("reinterprets a signed view as unsigned bytes", () => {
+    // Int8Array(-1) is the byte 0xff; the old loop rendered it as "-1".
+    expect(bytesToHex(new Int8Array([-1, 5]))).toBe("ff05");
+  });
+
+  it("accepts an ArrayBuffer", () => {
+    expect(bytesToHex(new Uint8Array([0, 255]).buffer)).toBe("00ff");
+  });
+
+  it("respects a view's offset and length", () => {
+    const full = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd]);
+    expect(bytesToHex(full.subarray(1, 3))).toBe("bbcc");
+  });
+});

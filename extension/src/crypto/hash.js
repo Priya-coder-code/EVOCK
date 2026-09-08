@@ -110,13 +110,35 @@ export function dataUrlToBytes(dataUrl) {
 }
 
 /**
- * @param {Uint8Array} bytes
+ * Render bytes as lowercase hex.
+ *
+ * The input is normalised to a Uint8Array first. Indexing an arbitrary value
+ * and calling `.toString(16)` on whatever comes back produces silently wrong
+ * output rather than an error: the string "abc" yielded "0a0b0c", and an
+ * Int8Array holding -1 yielded "-1" instead of the byte "ff".
+ *
+ * @param {ArrayBuffer|ArrayBufferView} bytes
  * @returns {string} lowercase hex
  */
 export function bytesToHex(bytes) {
+  const view = toUint8Array(bytes);
+
   let hex = "";
-  for (let i = 0; i < bytes.length; i++) {
-    hex += bytes[i].toString(16).padStart(2, "0");
+  for (let i = 0; i < view.length; i++) {
+    hex += view[i].toString(16).padStart(2, "0");
   }
   return hex;
+}
+
+/**
+ * @param {ArrayBuffer|ArrayBufferView} value
+ * @returns {Uint8Array} a view over the same bytes, reinterpreted as unsigned
+ */
+function toUint8Array(value) {
+  if (value instanceof Uint8Array) return value;
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  throw new TypeError("bytesToHex: expected an ArrayBuffer or a typed-array view");
 }

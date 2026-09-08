@@ -429,3 +429,71 @@ describe("buildManifest — evidence_id is covered by manifest_hash", () => {
     expect(await sha256Canonical(reduceManifestForHashing(late))).not.toBe(manifest_hash);
   });
 });
+
+describe("buildManifest — the manifest is independent of its inputs", () => {
+  // lockEvidence receives capture and extraction from Role A's orchestrator,
+  // which still holds those objects. If the manifest shares structure with them,
+  // any later touch silently invalidates hashes that were already computed, and
+  // the first verify reports MODIFIED on evidence nobody tampered with.
+  it("does not alias the extraction's data", async () => {
+    const args = buildArgs();
+    const { manifest } = await buildManifest(args);
+
+    expect(manifest.ai_derived_metadata.data).not.toBe(args.extraction.data);
+    expect(manifest.ai_derived_metadata.data).toEqual(args.extraction.data);
+  });
+
+  it("does not alias the public key", async () => {
+    const args = buildArgs();
+    const { manifest } = await buildManifest(args);
+
+    expect(manifest.signature.public_key_jwk).not.toBe(args.public_key_jwk);
+    expect(manifest.signature.public_key_jwk).toEqual(args.public_key_jwk);
+  });
+
+  it("keeps both hashes valid when the caller mutates the extraction afterwards", async () => {
+    const args = buildArgs();
+    const { manifest, manifest_hash, metadata_hash } = await buildManifest(args);
+
+    args.extraction.data.messages[0].text = "mutated after the fact";
+    args.extraction.data.messages.push({
+      sender: "X",
+      text: "added after the fact",
+      visible_timestamp: null,
+      type: "incoming"
+    });
+
+    expect(await sha256Canonical(manifest.ai_derived_metadata)).toBe(metadata_hash);
+    expect(await sha256Canonical(reduceManifestForHashing(manifest))).toBe(manifest_hash);
+    expect(manifest.ai_derived_metadata.data.messages).toHaveLength(1);
+    expect(manifest.ai_derived_metadata.data.messages[0].text).not.toContain("mutated");
+  });
+
+  it("does not mutate the capture or extraction it was given", async () => {
+    const args = buildArgs();
+    const captureBefore = JSON.parse(JSON.stringify(args.capture));
+    const extractionBefore = JSON.parse(JSON.stringify(args.extraction));
+
+    await buildManifest(args);
+
+    expect(args.capture).toEqual(captureBefore);
+    expect(args.extraction).toEqual(extractionBefore);
+  });
+});
+
+describe("attachSignature — required arguments", () => {
+  it("refuses an absent or empty signature", async () => {
+    const { manifest } = await buildManifest(buildArgs());
+
+    expect(() => attachSignature(manifest, { signed_at: "now" })).toThrow(/signature_b64/);
+    expect(() => attachSignature(manifest, { signature_b64: "", signed_at: "now" })).toThrow(
+      /signature_b64/
+    );
+  });
+
+  it("refuses an absent signed_at", async () => {
+    const { manifest } = await buildManifest(buildArgs());
+
+    expect(() => attachSignature(manifest, { signature_b64: "c2ln" })).toThrow(/signed_at/);
+  });
+});
