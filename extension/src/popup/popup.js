@@ -1,6 +1,8 @@
 // EVOCK Popup Controller - Milestone A4
 // Manages Ready screen, Progress/Checklist, Artifact Presentation, Provider Selection, and Settings.
 
+import { MSG } from "../shared/messages.js";
+
 document.addEventListener("DOMContentLoaded", async () => {
   // Views
   const viewReady = document.getElementById("view-ready");
@@ -181,7 +183,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // 3. Dispatch preservation request to service worker
     try {
       const response = await chrome.runtime.sendMessage({
-        type: "PRESERVE_START"
+        type: MSG.PRESERVE_START
       });
 
       if (response && response.ok && response.capture) {

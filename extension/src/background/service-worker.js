@@ -1,12 +1,13 @@
 // EVOCK Service Worker - Background Orchestrator
 import { captureVisibleTab } from "../capture/capture.js";
 import { getProvider, getSelectedProviderId } from "../extraction/provider.js";
+import { MSG } from "../shared/messages.js";
 
 console.log("EVOCK service worker loaded");
 
 // Listen for messages from extension popup or other components
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message && message.type === "PRESERVE_START") {
+  if (message && message.type === MSG.PRESERVE_START) {
     // Run async capture and extraction without allowing unhandled errors to crash the service worker
     (async () => {
       try {
