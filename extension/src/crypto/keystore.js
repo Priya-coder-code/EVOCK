@@ -93,8 +93,18 @@ async function loadOrCreateSigningKeyPair() {
 
     // Someone else won the race; adopt their keypair and discard ours.
     const stored = await readSigningKeyPair();
-    if (!stored) throw error;
-    return stored;
+    if (stored) return stored;
+
+    // The record exists — that is why `add` failed — but it does not hold a
+    // usable keypair. Every future preservation would fail here with a bare
+    // ConstraintError that says nothing about the cause, so name it. Recovery
+    // means deleting the record and letting a fresh keypair be generated; past
+    // evidence still verifies, because each manifest carries its own public key.
+    throw new Error(
+      `keystore: the stored signing key record ("${SIGNING_KEY_ID}") is present but incomplete, ` +
+        "so this vault cannot sign. Delete it to generate a new keypair; existing evidence " +
+        "remains verifiable through the public key embedded in each manifest."
+    );
   }
 }
 

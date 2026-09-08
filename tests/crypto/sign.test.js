@@ -335,3 +335,30 @@ describe("signing — end to end with a real manifest", () => {
     ).toBe(true);
   });
 });
+
+describe("keystore — damaged records", () => {
+  it("reports a half-written keystore record clearly, not as an opaque ConstraintError", async () => {
+    // A record holding a public key but no private key makes the vault unable to
+    // sign anything, permanently. The previous behaviour was a bare
+    // ConstraintError from the failed `add`, which says nothing about the cause.
+    const { txDone } = await import("../../extension/src/storage/db.js");
+    const db = await openDb();
+
+    // Generate before opening the transaction: an IndexedDB transaction cannot
+    // survive an await on a non-IDB promise.
+    const orphan = await freshKeyPair();
+    const tx = db.transaction(STORE_KEYS, "readwrite");
+    tx.objectStore(STORE_KEYS).put({ id: SIGNING_KEY_ID, publicKey: orphan.publicKey });
+    await txDone(tx);
+
+    vi.resetModules();
+    const keystore = await import("../../extension/src/crypto/keystore.js");
+
+    await expect(keystore.getSigningKeyPair()).rejects.toThrow(/signing key/i);
+
+    // Clean up so later tests in this file get a healthy vault again.
+    const cleanupTx = db.transaction(STORE_KEYS, "readwrite");
+    cleanupTx.objectStore(STORE_KEYS).delete(SIGNING_KEY_ID);
+    await txDone(cleanupTx);
+  });
+});

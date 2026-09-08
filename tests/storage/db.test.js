@@ -90,3 +90,41 @@ describe("promise wrappers", () => {
     );
   });
 });
+
+describe("openDb — connection lifecycle", () => {
+  it("gives a fresh connection to a caller that arrives while closeDb is in flight", async () => {
+    // closeDb previously awaited the pending promise before clearing it, so a
+    // caller arriving during that window was handed the very connection about
+    // to be closed and got an InvalidStateError on first use.
+    const { closeDb } = await import("../../extension/src/storage/db.js");
+
+    await openDb();
+    const closing = closeDb();
+    const during = openDb();
+    await closing;
+
+    const db = await during;
+    expect(() => db.transaction(STORE_SETTINGS, "readonly")).not.toThrow();
+  });
+
+  it("reopens cleanly after a close", async () => {
+    const { closeDb } = await import("../../extension/src/storage/db.js");
+
+    await openDb();
+    await closeDb();
+    const db = await openDb();
+
+    expect(() => db.transaction(STORE_SETTINGS, "readonly")).not.toThrow();
+    expect(Array.from(db.objectStoreNames).sort()).toEqual(
+      [STORE_EVIDENCE, STORE_KEYS, STORE_SETTINGS].sort()
+    );
+  });
+
+  it("is a no-op to close twice", async () => {
+    const { closeDb } = await import("../../extension/src/storage/db.js");
+
+    await openDb();
+    await closeDb();
+    await expect(closeDb()).resolves.toBeUndefined();
+  });
+});

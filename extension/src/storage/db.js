@@ -29,6 +29,10 @@ export const INDEX_BY_PLATFORM = "by_platform";
 /** @type {Promise<IDBDatabase>|null} */
 let dbPromise = null;
 
+/** The connection `dbPromise` resolved to, so lifecycle handlers can identify it. */
+/** @type {IDBDatabase|null} */
+let openConnection = null;
+
 /**
  * Open the vault database, creating it on first use.
  *
@@ -42,18 +46,44 @@ export function openDb() {
     dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
+      // `blocked` rejects, but the underlying open can still succeed later. Track
+      // whether we have already settled so a late connection is closed instead
+      // of leaking — an unclosed connection blocks the next upgrade forever.
+      let settled = false;
+
       request.onupgradeneeded = (event) => upgrade(request.result, event.oldVersion);
-      request.onerror = () => reject(request.error);
-      request.onblocked = () =>
+
+      request.onerror = () => {
+        settled = true;
+        reject(request.error);
+      };
+
+      request.onblocked = () => {
+        settled = true;
         reject(new Error("openDb: blocked by an older connection in another tab"));
+      };
+
       request.onsuccess = () => {
         const db = request.result;
+
+        if (settled) {
+          db.close();
+          return;
+        }
+        settled = true;
+        openConnection = db;
+
         // If another context needs to upgrade, step out of its way rather than
-        // blocking it forever.
+        // blocking it forever. Only drop the cache if it still refers to this
+        // connection: a newer one may already have replaced it.
         db.onversionchange = () => {
           db.close();
-          dbPromise = null;
+          if (openConnection === db) {
+            openConnection = null;
+            dbPromise = null;
+          }
         };
+
         resolve(db);
       };
     }).catch((error) => {
@@ -124,8 +154,14 @@ export function txDone(tx) {
  * code never needs it.
  */
 export async function closeDb() {
-  if (!dbPromise) return;
-  const db = await dbPromise.catch(() => null);
+  // Clear the cache before awaiting. Holding it across the await handed any
+  // caller arriving in that window the very connection about to be closed, which
+  // then failed with InvalidStateError on first use.
+  const pending = dbPromise;
   dbPromise = null;
+  openConnection = null;
+
+  if (!pending) return;
+  const db = await pending.catch(() => null);
   db?.close();
 }
