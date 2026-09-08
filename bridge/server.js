@@ -218,9 +218,18 @@ async function handleExtract(req, res, bodyString) {
         // Deterministic decoding: ordering and verbatim text must not vary
         // between runs on the same screenshot.
         temperature: 0,
+        top_p: 1,
+        seed: 42,
         max_tokens: 4096,
         response_format: {
           type: "json_object"
+        },
+        // OpenRouter may route one model to several backend providers with
+        // different determinism guarantees. Only use backends that actually
+        // honour temperature/seed/response_format, and don't silently fall back.
+        provider: {
+          require_parameters: true,
+          allow_fallbacks: false
         }
       }),
       signal: controller.signal
