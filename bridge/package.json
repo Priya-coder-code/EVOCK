@@ -1,14 +1,13 @@
 {
   "name": "evock-bridge",
   "version": "0.1.0",
-  "description": "Local API key proxy bridge for EVOCK browser extension",
+  "description": "Local API-key proxy bridge for the EVOCK browser extension",
   "type": "module",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js"
-  },
-  "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.21.0"
   }
 }

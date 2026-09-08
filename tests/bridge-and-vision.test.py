@@ -42,9 +42,11 @@ class TestBridgeAndVision(unittest.TestCase):
         with open(os.path.join(BRIDGE_DIR, "server.js"), "r") as f:
             code = f.read()
 
-        # 127.0.0.1 default host binding
+        # 127.0.0.1 default host binding, and a public/wildcard bind is refused
         self.assertIn('"127.0.0.1"', code)
-        self.assertIn('PORT = parseInt(process.env.BRIDGE_PORT || "8787"', code)
+        self.assertIn("BRIDGE_PORT", code)
+        self.assertIn("8787", code)
+        self.assertIn('"0.0.0.0"', code)  # explicitly guarded against
 
         # CORS restricted to chrome-extension:// and localhost
         self.assertIn('chrome-extension://', code)

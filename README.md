@@ -121,6 +121,38 @@ or:
 
 ---
 
+## Running the Prototype
+
+### 1. Load the extension
+
+1. Open `chrome://extensions` and enable **Developer mode**.
+2. **Load unpacked** and select the `extension/` directory.
+3. Pin EVOCK and open it on any normal web page.
+
+The extension runs directly from source — no build step.
+
+### 2. Start the local AI bridge (for Vision extraction)
+
+The bridge is a tiny local proxy that holds your OpenRouter API key so it never
+ships inside the extension. It is only needed for the **Vision** provider; the
+**Demo** provider works fully offline.
+
+```bash
+cp bridge/.env.example bridge/.env
+# edit bridge/.env and set OPENROUTER_API_KEY=...
+cd bridge && npm start
+```
+
+Requirements: Node ≥ 18. There are no dependencies to install. The bridge binds
+to `127.0.0.1:8787` only and refuses any non-loopback bind. Check it with
+`curl http://127.0.0.1:8787/health`; the popup's Settings screen shows the same
+status and the active model.
+
+If AI extraction is unavailable, preservation still completes — the screenshot
+and its integrity record are produced regardless (see **Fail gracefully**).
+
+---
+
 ## Evidence Model
 
 EVOCK keeps a clear distinction between original evidence and information derived from it.
