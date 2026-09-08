@@ -155,3 +155,39 @@ describe("bytesToHex — input validation", () => {
     expect(bytesToHex(full.subarray(1, 3))).toBe("bbcc");
   });
 });
+
+describe("base64 helpers", () => {
+  it("round-trips bytes", async () => {
+    const { base64ToBytes, bytesToBase64 } = await import("../../extension/src/crypto/hash.js");
+    const bytes = new Uint8Array([0, 1, 127, 128, 255]);
+
+    expect(Array.from(base64ToBytes(bytesToBase64(bytes)))).toEqual(Array.from(bytes));
+  });
+
+  it("encodes known values", async () => {
+    const { bytesToBase64 } = await import("../../extension/src/crypto/hash.js");
+
+    expect(bytesToBase64(new Uint8Array([]))).toBe("");
+    expect(bytesToBase64(new TextEncoder().encode("hi"))).toBe("aGk=");
+  });
+
+  it("handles a screenshot-sized buffer without overflowing the stack", async () => {
+    // String.fromCharCode(...bytes) would throw here; the loop must be used.
+    const { base64ToBytes, bytesToBase64 } = await import("../../extension/src/crypto/hash.js");
+    const big = new Uint8Array(2_000_000);
+    for (let i = 0; i < big.length; i++) big[i] = i & 0xff;
+
+    const round = base64ToBytes(bytesToBase64(big));
+
+    expect(round.length).toBe(big.length);
+    expect(round[0]).toBe(big[0]);
+    expect(round[big.length - 1]).toBe(big[big.length - 1]);
+  });
+
+  it("rejects a non-string on decode and throws on malformed base64", async () => {
+    const { base64ToBytes } = await import("../../extension/src/crypto/hash.js");
+
+    expect(() => base64ToBytes(null)).toThrow(TypeError);
+    expect(() => base64ToBytes("!!not base64!!")).toThrow();
+  });
+});

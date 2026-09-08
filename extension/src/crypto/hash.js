@@ -1,5 +1,5 @@
 /**
- * EVOCK — SHA-256 primitives (Role B, B2).
+ * EVOCK — SHA-256 primitives and byte encoding (Role B, B2).
  *
  * Every fingerprint in the evidence core is produced here. SHA-256 is used for
  * one claim and one claim only: if the bytes change, the fingerprint changes.
@@ -141,4 +141,44 @@ function toUint8Array(value) {
   }
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   throw new TypeError("bytesToHex: expected an ArrayBuffer or a typed-array view");
+}
+
+/**
+ * Encode bytes as base64.
+ *
+ * Used for the AES-GCM IV in the manifest and for ECDSA signatures. Built with
+ * a loop rather than `String.fromCharCode(...bytes)`, because spreading a large
+ * array into an argument list overflows the call stack.
+ *
+ * @param {ArrayBuffer|ArrayBufferView} bytes
+ * @returns {string} base64
+ */
+export function bytesToBase64(bytes) {
+  const view = toUint8Array(bytes);
+
+  let binary = "";
+  for (let i = 0; i < view.length; i++) {
+    binary += String.fromCharCode(view[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Decode base64 into bytes. Throws on malformed input — callers that must not
+ * throw (signature verification) catch it.
+ *
+ * @param {string} base64
+ * @returns {Uint8Array}
+ */
+export function base64ToBytes(base64) {
+  if (typeof base64 !== "string") {
+    throw new TypeError("base64ToBytes: expected a base64 string");
+  }
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
