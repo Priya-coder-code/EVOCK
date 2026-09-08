@@ -12,73 +12,61 @@
 /**
  * System prompt defining the strict role, constraints, and JSON schema.
  */
-export const EXTRACTION_SYSTEM_PROMPT = `You are a digital evidence extraction assistant for EVOCK. Inspect the provided screenshot and extract ONLY information visibly present in it.
+export const EXTRACTION_SYSTEM_PROMPT = `You extract visible facts from one chat screenshot for EVOCK. Output nothing but a single JSON object.
 
-TWO CRITICAL RULES:
+READING ORDER — NO EXCEPTIONS
+Scan the screenshot strictly top to bottom. Emit each message bubble into "messages" in the exact vertical order it appears: the highest bubble is messages[0], the next one down is messages[1], and so on to the lowest bubble. This is pure chronological order. Never group bubbles by sender. Never reorder, sort, merge, or split. If two bubbles share a line, the left one comes first.
 
-1) CHRONOLOGICAL ORDER: The messages array MUST list messages in the EXACT order they appear top-to-bottom in the screenshot. If the chat shows:
-   - Message 1 (other person)
-   - Message 2 (you)
-   - Message 3 (other person)
-   Then messages[] MUST be [Message 1, Message 2, Message 3]. NEVER group by sender. NEVER sort.
+DIRECTION — DECIDED ONLY BY HORIZONTAL ALIGNMENT
+For every bubble, look at which side of the chat column it sits on:
+- Bubble aligned to the LEFT  -> "type": "incoming"  (the other person / contact sent it)
+- Bubble aligned to the RIGHT -> "type": "outgoing"  (the user sent it)
+- Only if alignment is genuinely indeterminable -> "type": "unknown"
+Alignment is the single source of truth for direction. Ignore colors, avatars, and assumptions.
+sender: for "incoming" use the contact's visible name/handle (else null); for "outgoing" use "You"; for "unknown" use null.
 
-2) CORRECT DIRECTION: Use the visual bubble position to determine type:
-   - Messages on the LEFT side = "incoming" (sent by other person / contact)
-   - Messages on the RIGHT side = "outgoing" (sent by you / user)
-   In most chat apps (Instagram, WhatsApp, Telegram, etc.), the other person's messages appear on the LEFT and your messages on the RIGHT.
+VERBATIM
+Copy each bubble's text exactly as shown — same spelling, casing, punctuation, emoji, line breaks. Do not correct, translate, summarize, or rephrase.
 
-RULES:
-1. Extract ONLY what you can actually SEE in the screenshot.
-2. NEVER copy or hallucinate example names, texts, or dummy data. If any field or value is not visible or unreadable, use null — never placeholder text like "N/A" or "none".
-3. For contact_name:
-   - In Instagram chats, read the contact name or username (@handle) shown in the top header bar of the chat.
-   - For WhatsApp, Telegram, etc., read the name or number in the chat header.
-   - If no contact name is visible in the header, return null.
-4. Preserve message text EXACTLY as written in the screenshot. Do not fix spelling, grammar, or rephrase.
-5. Do NOT classify or judge content (no "threatening", "harassing", etc.).
-6. Return ONLY valid JSON. No markdown fences, no explanations, no preamble.
-7. messages must be an array of objects in top-to-bottom visual order. If you see no message bubbles, return an empty array [].
+VISIBLE ONLY
+Report only what is actually rendered in THIS screenshot. Anything not clearly visible or not legible is null. Never output placeholders like "N/A", "none", "unknown". Never invent or carry over example values.
 
-OUTPUT JSON FORMAT (Return strictly this JSON structure with real visible data, or null for unseen fields):
+DO NOT interpret, classify, judge, or label the content in any way.
+
+OUTPUT — exactly these keys, this shape:
 {
-  "platform": "Instagram",
-  "contact_name": null,
-  "messages": [
-    { "sender": null, "text": "visible text", "visible_timestamp": null, "type": "incoming" }
+  "platform": string|null,          // messaging app shown (e.g. "WhatsApp", "Instagram", "Telegram", "X"), else null
+  "contact_name": string|null,      // exact name/handle in the chat header, else null
+  "messages": [                     // every visible bubble, top-to-bottom; [] if none
+    {
+      "sender": string|null,
+      "text": string|null,          // verbatim bubble text
+      "visible_timestamp": string|null, // timestamp on/beside that bubble, else null
+      "type": "incoming"|"outgoing"|"unknown"
+    }
   ],
-  "visible_time": null,
-  "date": null
+  "visible_time": string|null,      // clock in the device status bar, else null
+  "date": string|null               // date separator/header visible in the chat, else null
 }
 
-Field instructions:
-- platform: the messaging app visible in the screenshot (Instagram, WhatsApp, Telegram, X, etc., or null)
-- contact_name: the exact name or handle shown in the chat header (or null if not visible)
-- messages: array of EVERY visible message bubble in top-to-bottom order, each with:
-    sender (contact name for incoming, "You" for outgoing, or null if unknown),
-    text (verbatim text visible inside the bubble),
-    visible_timestamp (timestamp text if visible on/near the bubble, or null),
-    type ("incoming" = left-side bubble, "outgoing" = right-side bubble, "unknown" = cannot determine)
-- visible_time: the time shown in the screenshot's top device status bar (or null)
-- date: the date header/marker visible in the chat (or null)`;
+Return only the JSON object — no markdown fences, no commentary.`;
 
 /**
  * User instruction prompt accompanying the screenshot.
  */
-export const EXTRACTION_USER_PROMPT = `Look at this screenshot carefully and read every message bubble.
+export const EXTRACTION_USER_PROMPT = `Extract this screenshot into the JSON object.
 
-For EACH message bubble visible in the screenshot, from top to bottom:
-1. Identify the sender name or handle (from the chat header or above the bubble).
-2. Read the exact message text inside the bubble.
-3. Note any visible timestamp on or near the bubble.
-4. Determine direction: Is this bubble on the LEFT side (incoming) or RIGHT side (outgoing)?
-5. Add it as the next element in the messages array in exact chronological order.
+Go bubble by bubble from the TOP of the screenshot to the BOTTOM. For each bubble, in that order:
+1. Read its text verbatim.
+2. Read any timestamp shown on or beside it, else null.
+3. Set "type" from horizontal alignment ONLY: left-aligned -> "incoming", right-aligned -> "outgoing", indeterminable -> "unknown".
+4. Append it as the next element of "messages".
 
-CRITICAL:
-- Extract ONLY what is visible in this specific screenshot.
-- Do NOT copy any example names or text.
-- Do NOT group by sender. Do NOT reorder.
+The order of "messages" must match the vertical order of the bubbles exactly — top bubble first, bottom bubble last. Do not group by sender. Do not reorder.
 
-Return ONLY the JSON object. Do not add any text before or after the JSON.`;
+Use only values visible in THIS screenshot; everything else is null. Copy no example data.
+
+Return ONLY the JSON object — no text before or after it.`;
 
 /**
  * Builds the standard multimodal chat completion message payload for OpenRouter / VLM APIs.
