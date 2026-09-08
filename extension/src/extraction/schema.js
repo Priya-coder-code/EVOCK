@@ -133,6 +133,26 @@ export function validateAndNormalizeExtraction(rawOutput, options = {}) {
     };
   }
 
+  // Some models reply with an error envelope (e.g. {"error":"image is blank"})
+  // instead of the extraction shape. That is a failed extraction, not an empty
+  // one — surface it so the popup shows the honest degraded state.
+  const hasAnyExtractionField =
+    typeof parsed.platform === "string" ||
+    typeof parsed.contact_name === "string" ||
+    typeof parsed.visible_time === "string" ||
+    typeof parsed.date === "string" ||
+    (Array.isArray(parsed.messages) && parsed.messages.length > 0);
+  if (typeof parsed.error === "string" && parsed.error.trim() && !hasAnyExtractionField) {
+    return {
+      provider,
+      model,
+      extractedAt: now,
+      data: null,
+      status: "failed",
+      error: parsed.error.trim()
+    };
+  }
+
   // Top-level field extraction with defensive type checks (numbers/booleans become null, not cast)
   const platform = normalizeNullableString(parsed.platform);
   const contact_name = normalizeNullableString(parsed.contact_name);

@@ -82,6 +82,14 @@ function handleCors(req, res) {
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
     res.setHeader("Access-Control-Max-Age", "86400");
+    // Chrome Private Network Access: a fetch from an extension page/worker to a
+    // loopback address triggers a preflight carrying this request header. Without
+    // the matching response header Chrome blocks the request outright and the
+    // extension only sees a generic "failed to fetch" — which surfaces in EVOCK
+    // as "AI extraction failed". Echo the grant so the loopback call is allowed.
+    if (req.headers["access-control-request-private-network"] === "true") {
+      res.setHeader("Access-Control-Allow-Private-Network", "true");
+    }
   } else if (origin) {
     return false;
   }
