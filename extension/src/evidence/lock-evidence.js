@@ -135,7 +135,13 @@ async function allocateEvidenceId() {
 function makeAnnouncer(emit) {
   return (stage) => {
     try {
-      emit(stage);
+      // A progress callback that reports over chrome.runtime.sendMessage returns
+      // a promise that rejects when the popup is closed. Swallow that too — the
+      // sync try/catch alone would leave it as an unhandled rejection.
+      const maybePromise = emit(stage);
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then(undefined, () => {});
+      }
     } catch {
       /* progress reporting is best-effort */
     }

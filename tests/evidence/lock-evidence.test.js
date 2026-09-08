@@ -66,6 +66,12 @@ describe("lockEvidence — full run", () => {
 
     expect(manifest.signature.signature).toMatch(/^[A-Za-z0-9+/]+=*$/);
     expect(manifest.signature.signature.length).toBeGreaterThan(0);
+
+    // DoD item 3: a well-formed public key rides in every manifest.
+    expect(manifest.signature.public_key_jwk).toMatchObject({ kty: "EC", crv: "P-256" });
+    expect(typeof manifest.signature.public_key_jwk.x).toBe("string");
+    expect(typeof manifest.signature.public_key_jwk.y).toBe("string");
+    expect(manifest.signature.public_key_jwk.d).toBeUndefined();
     expect(manifest.signature.signed_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
 
     // manifest IV base64 decodes to the same bytes as the stored record IV
@@ -122,6 +128,17 @@ describe("lockEvidence — emit", () => {
     await expect(
       lockEvidence({ capture: capture(), extraction: extractionOk() })
     ).resolves.toBeTruthy();
+  });
+
+  it("is unharmed by an emit that returns a rejecting promise", async () => {
+    // chrome.runtime.sendMessage rejects when the popup has closed.
+    const record = await lockEvidence({
+      capture: capture(),
+      extraction: extractionOk(),
+      emit: () => Promise.reject(new Error("no receiver"))
+    });
+
+    expect(record.evidence_id).toBeTruthy();
   });
 });
 

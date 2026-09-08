@@ -107,8 +107,7 @@ Role A owns `background/service-worker.js`. This is the diff to pair-review; it 
  import { captureVisibleTab } from "../capture/capture.js";
  import { getProvider, getSelectedProviderId } from "../extraction/provider.js";
  import { MSG } from "../shared/messages.js";
-+import { lockEvidence } from "../evidence/index.js";
-+import { verifyEvidence } from "../evidence/index.js";
++import { lockEvidence, verifyEvidence } from "../evidence/index.js";
 +import * as vaultRepo from "../storage/vault-repo.js";
 
    if (message && message.type === MSG.PRESERVE_START) {
@@ -154,6 +153,8 @@ Role A owns `background/service-worker.js`. This is the diff to pair-review; it 
 +      const record = await vaultRepo.get(message.payload.evidence_id);
 +      if (!record) return sendResponse({ ok: false, error: "not found" });
 +      const blob = await vaultRepo.getDecryptedScreenshot(message.payload.evidence_id);
++      // NOTE for Role A/C: URL.createObjectURL in an MV3 worker needs revoking and
++      // does not survive worker restart. Role C may prefer to receive the Blob.
 +      sendResponse({ ok: true, manifest: record.manifest, screenshotObjectUrl: URL.createObjectURL(blob) });
 +    })().catch((err) => sendResponse({ ok: false, error: err.message }));
 +    return true;
