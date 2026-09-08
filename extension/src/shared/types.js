@@ -1,0 +1,191 @@
+/**
+ * EVOCK — module contracts.
+ *
+ * Contracts are frozen. Changes require all three roles to approve a PR
+ * (Plan/Building Plan.md §5). Every stage of the pipeline reads and writes the
+ * shapes defined here; a field that is "sometimes present" is a hashing bug
+ * waiting to happen, so absent data is always `null`, never missing.
+ *
+ * This module is documentation only — it exports no runtime code.
+ */
+
+// ---------------------------------------------------------------------------
+// §5.1 CaptureResult — output of capture/capture.js (Role A)
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {Object} CaptureResult
+ * @property {string}  screenshotDataUrl  // "data:image/png;base64,..."
+ * @property {string}  mimeType           // "image/png"
+ * @property {number}  width
+ * @property {number}  height
+ * @property {string}  url                // full URL of the captured tab
+ * @property {string}  domain             // hostname only
+ * @property {string}  tabTitle
+ * @property {string}  capturedAt         // ISO-8601 with offset, device clock
+ * @property {string}  captureMethod      // "browser_extension.captureVisibleTab"
+ */
+
+// ---------------------------------------------------------------------------
+// §5.2 ExtractionResult — output of any ExtractionProvider (Role A)
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {Object} ExtractedMessage
+ * @property {string|null} sender
+ * @property {string|null} text
+ * @property {string|null} visible_timestamp
+ * @property {"incoming"|"outgoing"|null} type
+ */
+
+/**
+ * @typedef {Object} ExtractedData
+ * @property {string|null} platform
+ * @property {string|null} contact_name
+ * @property {ExtractedMessage[]} messages
+ * @property {string|null} visible_time
+ * @property {string|null} date
+ */
+
+/**
+ * `status: "failed"` is what an API error, a timeout or an unreachable bridge
+ * produces. It still results in a complete, locked evidence record — the
+ * screenshot, hashes, signature and encryption are unaffected.
+ *
+ * @typedef {Object} ExtractionResult
+ * @property {"demo"|"vision"} provider
+ * @property {string|null} model              // e.g. "openrouter/<model-id>"
+ * @property {string|null} extractedAt        // ISO-8601
+ * @property {ExtractedData|null} data        // null when status === "failed"
+ * @property {"ok"|"failed"} status
+ * @property {string|null} error              // human-readable failure reason
+ */
+
+// ---------------------------------------------------------------------------
+// §5.3 EvidenceManifest v1.0 — the thing that gets hashed and signed (Role B)
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {Object} ManifestSource
+ * @property {string} capture_method
+ * @property {string} url
+ * @property {string} domain
+ * @property {string} tab_title
+ */
+
+/**
+ * @typedef {Object} ManifestCapture
+ * @property {string} device_captured_at   // ISO-8601 with offset, device clock
+ * @property {number} screenshot_width
+ * @property {number} screenshot_height
+ * @property {string} mime_type
+ */
+
+/**
+ * @typedef {Object} ManifestEncryption
+ * @property {"AES-GCM"} algorithm
+ * @property {256} key_length
+ * @property {string} iv                   // base64, 96-bit, unique per record
+ */
+
+/**
+ * @typedef {Object} ManifestVisualArtifact
+ * @property {"screenshot"} type
+ * @property {"encrypted"} storage
+ * @property {ManifestEncryption} encryption
+ */
+
+/**
+ * The whole block is hashed — including provider, model and status — because
+ * the provenance of the derived data is part of what we protect.
+ *
+ * @typedef {Object} ManifestAiDerivedMetadata
+ * @property {string} provider
+ * @property {string|null} model
+ * @property {"ok"|"failed"} status
+ * @property {string|null} extracted_at
+ * @property {ExtractedData|null} data
+ */
+
+/**
+ * Hashing order (frozen, §5.3):
+ *   screenshot_hash = SHA256( raw screenshot bytes, pre-encryption )
+ *   metadata_hash   = SHA256( canonicalize( ai_derived_metadata ) )
+ *   manifest_hash   = SHA256( canonicalize( manifest without
+ *                              .integrity.manifest_hash and without .signature ) )
+ *
+ * @typedef {Object} ManifestIntegrity
+ * @property {"SHA-256"} hash_algorithm
+ * @property {string} screenshot_hash      // hex
+ * @property {string} metadata_hash        // hex
+ * @property {string} manifest_hash        // hex
+ */
+
+/**
+ * The public key is embedded so a third party can verify an exported package on
+ * a machine that has never seen this vault.
+ *
+ * @typedef {Object} ManifestSignature
+ * @property {"ECDSA-P256-SHA256"} algorithm
+ * @property {Object} public_key_jwk
+ * @property {string|null} signature       // base64, over the manifest_hash bytes
+ * @property {string|null} signed_at       // ISO-8601 with offset
+ */
+
+/**
+ * Device time and trusted time are separate fields with separate names. The UI
+ * must never present device time as a trusted timestamp (spec §25.11, §36).
+ *
+ * @typedef {Object} ManifestTimestamp
+ * @property {string} device_capture_time
+ * @property {"not_configured"|"pending"|"ok"|"failed"} trusted_timestamp_status
+ * @property {string|null} trusted_timestamp_token
+ */
+
+/**
+ * @typedef {Object} EvidenceManifest
+ * @property {"1.0"} schema_version
+ * @property {string|null} evidence_id
+ * @property {ManifestSource} source
+ * @property {ManifestCapture} capture
+ * @property {ManifestVisualArtifact} visual_artifact
+ * @property {ManifestAiDerivedMetadata} ai_derived_metadata
+ * @property {ManifestIntegrity} integrity
+ * @property {ManifestSignature} signature
+ * @property {ManifestTimestamp} timestamp
+ */
+
+// ---------------------------------------------------------------------------
+// §5.4 StoredEvidenceRecord — what IndexedDB holds (Role B)
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {Object} StoredEvidenceRecord
+ * @property {string} evidence_id            // primary key, e.g. "NK-0001"
+ * @property {EvidenceManifest} manifest
+ * @property {ArrayBuffer} screenshot_ciphertext
+ * @property {ArrayBuffer} iv
+ * @property {string} created_at             // index for timeline ordering
+ * @property {string} platform_label         // index for grouping, may be "Unknown"
+ * @property {VerificationResult|null} last_verification
+ */
+
+// ---------------------------------------------------------------------------
+// §5.5 VerificationResult — output of verify/verifier.js (Role B)
+// ---------------------------------------------------------------------------
+
+/**
+ * `details` strings are rendered verbatim by Role C's vault UI. Agree the exact
+ * wording once and keep it stable (Plan/Role B.md §5).
+ *
+ * @typedef {Object} VerificationResult
+ * @property {boolean} screenshot_hash_ok
+ * @property {boolean} metadata_hash_ok
+ * @property {boolean} manifest_hash_ok
+ * @property {boolean} signature_ok
+ * @property {"VERIFIED"|"MODIFIED"|"ERROR"} status
+ * @property {string[]} details              // e.g. ["metadata hash mismatch"]
+ * @property {string} verified_at            // ISO-8601 with offset
+ */
+
+export {};
