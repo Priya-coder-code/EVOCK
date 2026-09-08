@@ -205,12 +205,20 @@ async function handleExtract(req, res, bodyString) {
               {
                 type: "image_url",
                 image_url: {
-                  url: body.image
+                  url: body.image,
+                  // Dense chat screenshots get downsampled at default detail,
+                  // which is when the model starts missing/merging/reordering
+                  // bubbles. Ask for full-resolution analysis.
+                  detail: "high"
                 }
               }
             ]
           }
         ],
+        // Deterministic decoding: ordering and verbatim text must not vary
+        // between runs on the same screenshot.
+        temperature: 0,
+        max_tokens: 4096,
         response_format: {
           type: "json_object"
         }
