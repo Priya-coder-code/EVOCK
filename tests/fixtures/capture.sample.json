@@ -1,0 +1,11 @@
+{
+  "screenshotDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==",
+  "mimeType": "image/png",
+  "width": 1,
+  "height": 1,
+  "url": "https://web.whatsapp.com/",
+  "domain": "web.whatsapp.com",
+  "tabTitle": "WhatsApp",
+  "capturedAt": "2026-09-01T23:31:14+05:30",
+  "captureMethod": "browser_extension.captureVisibleTab"
+}

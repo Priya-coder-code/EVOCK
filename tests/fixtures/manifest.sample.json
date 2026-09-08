@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "evidence_id": "NK-0001",
+  "source": {
+    "capture_method": "browser_extension.captureVisibleTab",
+    "url": "https://web.whatsapp.com/",
+    "domain": "web.whatsapp.com",
+    "tab_title": "WhatsApp"
+  },
+  "capture": {
+    "device_captured_at": "2026-09-01T23:31:14+05:30",
+    "screenshot_width": 1,
+    "screenshot_height": 1,
+    "mime_type": "image/png"
+  },
+  "visual_artifact": {
+    "type": "screenshot",
+    "storage": "encrypted",
+    "encryption": {
+      "algorithm": "AES-GCM",
+      "key_length": 256,
+      "iv": "yv66vv7erb7u3d7e"
+    }
+  },
+  "ai_derived_metadata": {
+    "provider": "demo",
+    "model": "demo-offline-v1",
+    "status": "ok",
+    "extracted_at": "2026-09-01T23:31:19+05:30",
+    "data": {
+      "platform": "WhatsApp",
+      "contact_name": "Mr. ABC B",
+      "messages": [
+        {
+          "sender": "Mr. ABC B",
+          "text": "Sample preserved abusive message extracted by offline demo provider.",
+          "visible_timestamp": "11:28 PM",
+          "type": "incoming"
+        }
+      ],
+      "visible_time": "11:28 PM",
+      "date": "1 September 2026"
+    }
+  },
+  "integrity": {
+    "hash_algorithm": "SHA-256",
+    "screenshot_hash": "83a91f2c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8",
+    "metadata_hash": "b72c19ad3e4f5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+    "manifest_hash": "1f2e3d4c5b6a798887766554433221100ffeeddccbbaa99887766554433221100"
+  },
+  "signature": {
+    "algorithm": "ECDSA-P256-SHA256",
+    "public_key_jwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "PLACEHOLDER_X_COORDINATE_BASE64URL_43_CHARS_AAAAA",
+      "y": "PLACEHOLDER_Y_COORDINATE_BASE64URL_43_CHARS_BBBBB",
+      "ext": true,
+      "key_ops": ["verify"]
+    },
+    "signature": "UExBQ0VIT0xERVJfRUNEU0FfUDI1Nl9TSUdOQVRVUkVfNjRfQllURVNfQkFTRTY0X1BMQUNFSE9MREVS",
+    "signed_at": "2026-09-01T23:31:20+05:30"
+  },
+  "timestamp": {
+    "device_capture_time": "2026-09-01T23:31:14+05:30",
+    "trusted_timestamp_status": "not_configured",
+    "trusted_timestamp_token": null
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "provider": "demo",
+  "model": "demo-offline-v1",
+  "extractedAt": "2026-09-01T23:31:19+05:30",
+  "data": {
+    "platform": "WhatsApp",
+    "contact_name": "Mr. ABC B",
+    "messages": [
+      {
+        "sender": "Mr. ABC B",
+        "text": "Sample preserved abusive message extracted by offline demo provider.",
+        "visible_timestamp": "11:28 PM",
+        "type": "incoming"
+      }
+    ],
+    "visible_time": "11:28 PM",
+    "date": "1 September 2026"
+  },
+  "status": "ok",
+  "error": null
+}

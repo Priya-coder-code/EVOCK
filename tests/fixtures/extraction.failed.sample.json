@@ -1,0 +1,8 @@
+{
+  "provider": "vision",
+  "model": null,
+  "extractedAt": "2026-09-01T23:31:19+05:30",
+  "data": null,
+  "status": "failed",
+  "error": "Could not connect to local bridge at http://localhost:8787/extract. Please verify the bridge is running."
+}
