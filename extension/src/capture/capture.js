@@ -1,14 +1,24 @@
 /**
  * EVOCK - Screenshot Capture Module
- * 
+ *
  * Captures the visible tab as a PNG and produces a CaptureResult
  * complying with Plan/Building Plan.md §5.1 and Plan/Role A.md A2.
+ *
+ * This module is the front of the pipeline and must fail loudly and clearly:
+ * every failure mode is turned into a human-readable Error, never a silent
+ * null or a fabricated dimension.
  */
+
+/** PNG only. JPEG is lossy and we are about to hash this as "the original". */
+const CAPTURE_FORMAT = "png";
+
+/** One automatic retry when Chrome's per-second capture quota is hit. */
+const QUOTA_RETRY_DELAY_MS = 600;
 
 /**
  * Format a Date object as an ISO-8601 string including the local UTC offset.
  * Example output: "2026-09-07T22:30:15+05:30"
- * 
+ *
  * @param {Date} date
  * @returns {string}
  */
@@ -32,8 +42,9 @@ function formatIsoWithOffset(date = new Date()) {
 }
 
 /**
- * Determine if a URL is a restricted browser internal or store page.
- * 
+ * Determine if a URL is a restricted browser-internal or store page that
+ * extensions are never allowed to screenshot.
+ *
  * @param {string|undefined} url
  * @returns {boolean}
  */
@@ -44,6 +55,7 @@ function isRestrictedUrl(url) {
     url.startsWith("chrome-extension://") ||
     url.startsWith("devtools://") ||
     url.startsWith("edge://") ||
+    url.startsWith("brave://") ||
     url.startsWith("about:") ||
     url.startsWith("view-source:") ||
     url.includes("chrome.google.com/webstore") ||
@@ -52,8 +64,82 @@ function isRestrictedUrl(url) {
 }
 
 /**
- * Reads actual image dimensions from a base64 data URL using createImageBitmap.
- * 
+ * Classify a raw chrome.tabs.captureVisibleTab error into an actionable
+ * Error with a message the popup can show verbatim.
+ *
+ * @param {unknown} error
+ * @returns {{ error: Error, isQuota: boolean }}
+ */
+function classifyCaptureError(error) {
+  const raw = (error && error.message) ? String(error.message) : String(error || "");
+  const lc = raw.toLowerCase();
+
+  if (lc.includes("max_capture_visible_tab_calls_per_second") || lc.includes("quota")) {
+    return {
+      error: new Error("Chrome is rate-limiting screenshots. Please try again in a moment."),
+      isQuota: true
+    };
+  }
+
+  // activeTab has not been granted yet: the capture must be started by an
+  // explicit click on the extension, not a keyboard shortcut or context menu.
+  if (
+    lc.includes("activetab") ||
+    lc.includes("not been invoked") ||
+    lc.includes("not in effect") ||
+    lc.includes("has not been granted")
+  ) {
+    return {
+      error: new Error(
+        "EVOCK needs an explicit click. Open the EVOCK popup on the page you want to keep and press PRESERVE EVIDENCE."
+      ),
+      isQuota: false
+    };
+  }
+
+  if (
+    lc.includes("cannot access") ||
+    lc.includes("restricted") ||
+    lc.includes("cannot be scripted") ||
+    lc.includes("chrome:// url")
+  ) {
+    return {
+      error: new Error("This page cannot be captured by browser extensions."),
+      isQuota: false
+    };
+  }
+
+  return { error: new Error(`Failed to capture visible tab: ${raw || "unknown error"}`), isQuota: false };
+}
+
+/**
+ * Call chrome.tabs.captureVisibleTab, retrying once if Chrome's per-second
+ * capture quota is hit.
+ *
+ * @param {number|undefined} windowId
+ * @returns {Promise<string>} the screenshot data URL
+ */
+async function captureWithRetry(windowId) {
+  try {
+    return await chrome.tabs.captureVisibleTab(windowId, { format: CAPTURE_FORMAT });
+  } catch (error) {
+    const { error: classified, isQuota } = classifyCaptureError(error);
+    if (!isQuota) throw classified;
+
+    await new Promise((resolve) => setTimeout(resolve, QUOTA_RETRY_DELAY_MS));
+    try {
+      return await chrome.tabs.captureVisibleTab(windowId, { format: CAPTURE_FORMAT });
+    } catch (retryError) {
+      throw classifyCaptureError(retryError).error;
+    }
+  }
+}
+
+/**
+ * Reads the true pixel dimensions of the captured PNG. The captured image size
+ * is not the same as the tab/window size, and the manifest must record the
+ * real thing (Plan/Role A.md A2).
+ *
  * @param {string} dataUrl
  * @returns {Promise<{width: number, height: number}>}
  */
@@ -63,28 +149,41 @@ async function getImageDimensions(dataUrl) {
     const response = await fetch(dataUrl);
     blob = await response.blob();
   } catch {
-    // Fallback conversion from base64 data URL to Blob
+    // Fallback: decode the base64 data URL to a Blob by hand.
     const base64Index = dataUrl.indexOf(",");
     const base64 = base64Index !== -1 ? dataUrl.slice(base64Index + 1) : dataUrl;
     const binary = atob(base64);
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
     blob = new Blob([bytes], { type: "image/png" });
   }
 
-  const bitmap = await createImageBitmap(blob);
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch (err) {
+    throw new Error(
+      `Screenshot was captured but its dimensions could not be read (${err?.message || "decode failed"}).`
+    );
+  }
+
   const width = bitmap.width;
   const height = bitmap.height;
   bitmap.close();
+
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error("Screenshot was captured but reported invalid dimensions.");
+  }
+
   return { width, height };
 }
 
 /**
- * Captures the currently active browser tab and returns a CaptureResult object.
- * 
+ * Captures the currently active browser tab and returns a CaptureResult object
+ * matching the frozen §5.1 contract exactly.
+ *
  * @returns {Promise<{
  *   screenshotDataUrl: string,
  *   mimeType: string,
@@ -98,64 +197,43 @@ async function getImageDimensions(dataUrl) {
  * }>}
  */
 export async function captureVisibleTab() {
-  // 1. Query the active tab in the current window
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true
-  });
-
-  // 2. Error if no active tab found
+  // 1. Resolve the active tab.
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) {
-    throw new Error("No active tab found in current window.");
+    throw new Error("No active tab found in the current window.");
   }
-
-  // 3. Error if active tab has no tab ID
   if (tab.id === undefined || tab.id === null) {
-    throw new Error("Active tab has no valid tab ID.");
+    throw new Error("The active tab has no valid tab ID and cannot be captured.");
   }
 
-  // Check for restricted browser pages
+  // 2. Reject known-restricted pages before spending a capture call.
   if (isRestrictedUrl(tab.url)) {
     throw new Error("This page cannot be captured by browser extensions.");
   }
 
-  // 4. Capture visible tab as PNG
-  let screenshotDataUrl;
-  try {
-    screenshotDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: "png"
-    });
-  } catch (error) {
-    const errMsg = error?.message || "";
-    if (
-      errMsg.includes("cannot access") ||
-      errMsg.includes("Cannot access") ||
-      errMsg.includes("restricted")
-    ) {
-      throw new Error("This page cannot be captured by browser extensions.");
-    }
-    throw new Error(`Failed to capture visible tab: ${errMsg}`);
+  // 3. Capture (PNG, with one automatic retry on Chrome's per-second quota).
+  const screenshotDataUrl = await captureWithRetry(tab.windowId);
+  // Timestamp the moment of capture, from the device clock, with local offset.
+  const capturedAt = formatIsoWithOffset(new Date());
+
+  if (!screenshotDataUrl || typeof screenshotDataUrl !== "string") {
+    throw new Error("Screenshot capture returned empty image data.");
   }
 
-  if (!screenshotDataUrl) {
-    throw new Error("Failed to capture screenshot: received empty image data.");
-  }
-
-  // 5. Read actual screenshot dimensions using createImageBitmap
+  // 4. Record the real captured-image dimensions.
   const { width, height } = await getImageDimensions(screenshotDataUrl);
 
-  // Extract hostname domain safely
+  // 5. Derive the hostname for grouping; never let a bad URL throw here.
   let domain = "";
   if (tab.url) {
     try {
-      const parsedUrl = new URL(tab.url);
-      domain = parsedUrl.hostname;
+      domain = new URL(tab.url).hostname;
     } catch {
       domain = "";
     }
   }
 
-  // Construct and return the frozen CaptureResult contract (§5.1)
+  // 6. Frozen CaptureResult contract (§5.1).
   return {
     screenshotDataUrl,
     mimeType: "image/png",
@@ -164,7 +242,7 @@ export async function captureVisibleTab() {
     url: tab.url || "",
     domain,
     tabTitle: tab.title || "",
-    capturedAt: formatIsoWithOffset(new Date()),
+    capturedAt,
     captureMethod: "browser_extension.captureVisibleTab"
   };
 }
