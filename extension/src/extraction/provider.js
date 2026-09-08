@@ -16,7 +16,7 @@ export const STORAGE_KEY_PROVIDER_ID = "extractionProviderId";
 /**
  * Default provider to use when none is explicitly configured.
  */
-export const DEFAULT_PROVIDER_ID = "demo";
+export const DEFAULT_PROVIDER_ID = "vision";
 
 /**
  * Internal registry of available providers.
@@ -29,9 +29,9 @@ const registry = {
 
 /**
  * Returns an ExtractionProvider instance by ID.
- * Falls back to DEFAULT_PROVIDER_ID ("demo") if the given ID is unrecognized.
+ * Falls back to DEFAULT_PROVIDER_ID ("vision") if the given ID is unrecognized.
  *
- * @param {string} [id="demo"]
+ * @param {string} [id="vision"]
  * @returns {DemoExtractionProvider|VisionExtractionProvider}
  */
 export function getProvider(id = DEFAULT_PROVIDER_ID) {

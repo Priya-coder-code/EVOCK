@@ -66,11 +66,25 @@ export class DemoExtractionProvider {
     const platform = inferPlatform(capture?.domain || "");
     const now = new Date().toISOString();
 
+    // Determine platform-appropriate demo contact
+    let contactName = "Mr. ABC B";
+    let sampleSender = "Mr. ABC B";
+    if (platform === "Instagram") {
+      contactName = "instagram_user";
+      sampleSender = "instagram_user";
+    } else if (platform === "Telegram") {
+      contactName = "telegram_user";
+      sampleSender = "telegram_user";
+    } else if (platform === "X") {
+      contactName = "x_user";
+      sampleSender = "x_user";
+    }
+
     /** @type {ExtractedMessage[]} */
     const messages = [
       {
-        sender: "Mr. ABC B",
-        text: "Sample preserved abusive message extracted by offline demo provider.",
+        sender: sampleSender,
+        text: `Preserved message on ${platform} (offline demo mode).`,
         visible_timestamp: "11:28 PM",
         type: "incoming"
       }
@@ -79,7 +93,7 @@ export class DemoExtractionProvider {
     /** @type {ExtractedData} */
     const data = {
       platform,
-      contact_name: "Mr. ABC B",
+      contact_name: contactName,
       messages,
       visible_time: "11:28 PM",
       date: "1 September 2026"

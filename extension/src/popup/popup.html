@@ -33,6 +33,10 @@
           <span class="info-label">Domain</span>
           <div id="ready-page-domain" class="info-value">Loading...</div>
         </div>
+        <div class="info-row">
+          <span class="info-label">Extraction</span>
+          <div id="ready-provider-status" class="info-value">Vision AI (Checking bridge...)</div>
+        </div>
       </div>
 
       <div class="actions-primary">
@@ -196,8 +200,8 @@
         <div class="form-group">
           <label class="form-label" for="setting-provider">Extraction Provider</label>
           <select id="setting-provider" class="form-input">
+            <option value="vision" selected>Vision Provider (OpenRouter bridge — A5/A6)</option>
             <option value="demo">Demo Provider (Offline deterministic)</option>
-            <option value="vision">Vision Provider (OpenRouter bridge — A5/A6)</option>
           </select>
           <span class="form-help">Switch extraction provider (Milestone A4)</span>
         </div>

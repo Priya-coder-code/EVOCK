@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const openVaultBtn = document.getElementById("open-vault-btn");
   const settingsBtn = document.getElementById("settings-btn");
   const readyNotice = document.getElementById("ready-notice");
+  const readyProviderStatus = document.getElementById("ready-provider-status");
 
   // Progress Screen Elements
   const progressHeading = document.getElementById("progress-heading");
@@ -62,6 +63,29 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   /**
+   * Update the extraction provider status indicator on the ready screen
+   */
+  async function updateReadyProviderStatus() {
+    if (!readyProviderStatus) return;
+    const provider = settingProvider.value || "vision";
+    if (provider === "demo") {
+      readyProviderStatus.textContent = "Demo Provider (Offline)";
+      return;
+    }
+    try {
+      const response = await fetch("http://localhost:8787/health", { method: "GET" });
+      if (response.ok) {
+        const data = await response.json();
+        readyProviderStatus.textContent = data.apiKeyConfigured
+          ? `Vision AI (Bridge Online • ${data.model || "Ready"})`
+          : "Vision AI (Bridge Online, API key missing in bridge/.env)";
+        return;
+      }
+    } catch {}
+    readyProviderStatus.textContent = "Vision AI (Bridge Offline — start via: npm start in bridge/)";
+  }
+
+  /**
    * Initialize and synchronize provider selection from chrome.storage.local
    */
   async function loadProviderSetting() {
@@ -71,12 +95,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (data && data.extractionProviderId) {
           settingProvider.value = data.extractionProviderId;
         } else {
-          settingProvider.value = "demo";
+          settingProvider.value = "vision";
         }
       }
     } catch (err) {
       console.warn("Could not load provider setting:", err);
     }
+    await updateReadyProviderStatus();
   }
 
   // Handle provider changes in Settings
@@ -88,6 +113,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
         console.log("EVOCK: Provider updated to:", settingProvider.value);
       }
+      await updateReadyProviderStatus();
     } catch (err) {
       console.warn("Could not save provider setting:", err);
     }
@@ -312,11 +338,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     showView("settings");
   });
 
-  settingsBackBtn.addEventListener("click", () => {
+  settingsBackBtn.addEventListener("click", async () => {
+    await updateReadyProviderStatus();
     showView("ready");
   });
 
-  settingsDoneBtn.addEventListener("click", () => {
+  settingsDoneBtn.addEventListener("click", async () => {
+    await updateReadyProviderStatus();
     showView("ready");
   });
 });
