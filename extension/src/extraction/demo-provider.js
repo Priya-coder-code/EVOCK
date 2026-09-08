@@ -8,6 +8,8 @@
  * OpenRouter, a local bridge, or an internet connection.
  */
 
+import { validateAndNormalizeExtraction } from "./schema.js";
+
 /**
  * @typedef {Object} ExtractedMessage
  * @property {string|null} sender
@@ -64,7 +66,6 @@ export class DemoExtractionProvider {
     await new Promise((resolve) => setTimeout(resolve, 600));
 
     const platform = inferPlatform(capture?.domain || "");
-    const now = new Date().toISOString();
 
     // Determine platform-appropriate demo contact
     let contactName = "Mr. ABC B";
@@ -99,14 +100,12 @@ export class DemoExtractionProvider {
       date: "1 September 2026"
     };
 
+    // Run the demo output through the same validator the vision path uses, so
+    // both providers are guaranteed to return an identically-shaped result.
     /** @type {ExtractionResult} */
-    return {
+    return validateAndNormalizeExtraction(data, {
       provider: "demo",
-      model: "demo-offline-v1",
-      extractedAt: now,
-      data,
-      status: "ok",
-      error: null
-    };
+      model: "demo-offline-v1"
+    });
   }
 }

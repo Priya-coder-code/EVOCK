@@ -17,6 +17,13 @@ import { validateAndNormalizeExtraction } from "./schema.js";
 
 export const DEFAULT_BRIDGE_URL = "http://localhost:8787/extract";
 
+/**
+ * Hard ceiling for the extension -> bridge round trip. Slightly longer than the
+ * bridge's own 30s upstream timeout, so a healthy bridge always answers first
+ * and only a genuinely hung bridge trips this.
+ */
+export const BRIDGE_TIMEOUT_MS = 35000;
+
 export class VisionExtractionProvider {
   constructor(bridgeUrl = DEFAULT_BRIDGE_URL) {
     /** @type {"vision"} */
@@ -40,6 +47,10 @@ export class VisionExtractionProvider {
       });
     }
 
+    // Abort a hung bridge so extraction always resolves (Rule 2).
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), BRIDGE_TIMEOUT_MS);
+
     try {
       // 2. Dispatch request to local bridge
       const response = await fetch(this.bridgeUrl, {
@@ -51,7 +62,8 @@ export class VisionExtractionProvider {
           image: capture.screenshotDataUrl,
           system: EXTRACTION_SYSTEM_PROMPT,
           prompt: EXTRACTION_USER_PROMPT
-        })
+        }),
+        signal: controller.signal
       });
 
       // 3. Handle bridge HTTP error responses (4xx / 5xx)
@@ -97,12 +109,17 @@ export class VisionExtractionProvider {
         model: bridgeData.model || null
       });
     } catch (networkError) {
-      // 6. Handle bridge offline or unreachable gracefully
+      // 6. Bridge offline, unreachable, or hung - degrade cleanly.
+      const fallbackError = networkError && networkError.name === "AbortError"
+        ? `Local bridge did not respond within ${BRIDGE_TIMEOUT_MS / 1000}s.`
+        : `Could not connect to local bridge at ${this.bridgeUrl}. Please verify the bridge is running.`;
       return validateAndNormalizeExtraction(null, {
         provider: "vision",
         model: null,
-        fallbackError: `Could not connect to local bridge at ${this.bridgeUrl}. Please verify the bridge is running.`
+        fallbackError
       });
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 }
