@@ -16,3 +16,8 @@ if (!globalThis.crypto || !globalThis.crypto.subtle) {
       "(Node 20+). Check the Node version used to run Vitest."
   );
 }
+
+// The tamper-demo harness (verify/tamper-demo.js) is gated to dev builds. Turn
+// the flag on for the whole suite; the production-guard test toggles it off and
+// back around its own assertion.
+globalThis.__EVOCK_DEV__ = true;
