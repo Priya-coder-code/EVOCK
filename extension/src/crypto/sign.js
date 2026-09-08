@@ -72,27 +72,63 @@ export async function signManifestHash(hashHex, privateKey) {
  * @returns {Promise<boolean>}
  */
 export async function verifyManifestSignature(hashHex, sigB64, publicKeyJwk) {
-  try {
-    if (typeof hashHex !== "string" || !/^[0-9a-f]{64}$/i.test(hashHex)) return false;
-    if (typeof sigB64 !== "string" || sigB64.length === 0) return false;
-    if (!publicKeyJwk || typeof publicKeyJwk !== "object") return false;
+  return (await inspectManifestSignature(hashHex, sigB64, publicKeyJwk)).ok;
+}
 
-    const publicKey = await crypto.subtle.importKey(
+/**
+ * Like `verifyManifestSignature`, but distinguishes *why* a signature did not
+ * verify. The verifier (step 08) needs this because its reported detail strings
+ * separate "signature invalid" from "public key malformed"; a third party only
+ * needs the boolean above.
+ *
+ * Never throws.
+ *
+ * @param {string} hashHex 64-character hex SHA-256 digest
+ * @param {string} sigB64 base64 signature
+ * @param {JsonWebKey} publicKeyJwk public key taken from the manifest
+ * @returns {Promise<{ ok: boolean, reason: "valid"|"invalid"|"key_malformed"|"bad_input" }>}
+ */
+export async function inspectManifestSignature(hashHex, sigB64, publicKeyJwk) {
+  if (typeof hashHex !== "string" || !/^[0-9a-f]{64}$/i.test(hashHex)) {
+    return { ok: false, reason: "bad_input" };
+  }
+  if (typeof sigB64 !== "string" || sigB64.length === 0) {
+    return { ok: false, reason: "invalid" };
+  }
+  if (!publicKeyJwk || typeof publicKeyJwk !== "object") {
+    return { ok: false, reason: "key_malformed" };
+  }
+
+  let publicKey;
+  try {
+    publicKey = await crypto.subtle.importKey(
       "jwk",
       publicKeyJwk,
       ECDSA_KEY_PARAMS,
       false,
       ["verify"]
     );
+  } catch {
+    return { ok: false, reason: "key_malformed" };
+  }
 
-    return await crypto.subtle.verify(
+  let signatureBytes;
+  try {
+    signatureBytes = base64ToBytes(sigB64);
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+
+  try {
+    const ok = await crypto.subtle.verify(
       ECDSA_SIGN_PARAMS,
       publicKey,
-      base64ToBytes(sigB64),
+      signatureBytes,
       hexToBytes(hashHex)
     );
+    return { ok, reason: ok ? "valid" : "invalid" };
   } catch {
-    return false;
+    return { ok: false, reason: "invalid" };
   }
 }
 

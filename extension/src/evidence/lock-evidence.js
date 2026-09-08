@@ -27,6 +27,7 @@ import { attachSignature, buildManifest } from "./manifest-builder.js";
 import { nextEvidenceId } from "../shared/ids.js";
 import { openDb, STORE_SETTINGS, txDone } from "../storage/db.js";
 import * as vaultRepo from "../storage/vault-repo.js";
+import { nowIso } from "../shared/iso-time.js";
 
 /**
  * @param {{
@@ -141,23 +142,6 @@ function makeAnnouncer(emit) {
   };
 }
 
-/**
- * ISO-8601 with the local UTC offset, matching the format Role A's capture.js
- * produces (e.g. "2026-09-07T22:30:15+05:30"). Used only for `signed_at`.
- *
- * @param {Date} [date]
- * @returns {string}
- */
-export function nowIso(date = new Date()) {
-  const pad = (n) => String(n).padStart(2, "0");
-
-  const offsetMinutes = -date.getTimezoneOffset();
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const absOffset = Math.abs(offsetMinutes);
-
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
-    `${sign}${pad(Math.floor(absOffset / 60))}:${pad(absOffset % 60)}`
-  );
-}
+// Re-exported so step 07's public surface is unchanged; the implementation now
+// lives in shared/ so the verifier can use it without importing this whole file.
+export { nowIso };

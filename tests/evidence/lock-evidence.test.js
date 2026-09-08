@@ -325,5 +325,14 @@ describe("lockEvidence — timestamp has a single source", () => {
 });
 
 describe("lockEvidence — round trip through verification", () => {
-  it.todo("lockEvidence then verifyEvidence(id) returns VERIFIED (needs step 08)");
+  it("lockEvidence then verifyEvidence(id) returns VERIFIED", async () => {
+    const { verifyEvidence } = await import("../../extension/src/verify/verifier.js");
+
+    const { evidence_id } = await lockEvidence({
+      capture: capture(),
+      extraction: extractionOk()
+    });
+
+    expect((await verifyEvidence(evidence_id)).status).toBe("VERIFIED");
+  });
 });

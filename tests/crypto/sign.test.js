@@ -362,3 +362,37 @@ describe("keystore — damaged records", () => {
     await txDone(cleanupTx);
   });
 });
+
+describe("inspectManifestSignature — classifies why a signature failed", () => {
+  it("returns valid for a good signature", async () => {
+    const { inspectManifestSignature } = await import("../../extension/src/crypto/sign.js");
+    const { privateKey, publicKey } = await getSigningKeyPair();
+    const jwk = await crypto.subtle.exportKey("jwk", publicKey);
+    const sig = await signManifestHash(manifestHash, privateKey);
+
+    expect(await inspectManifestSignature(manifestHash, sig, jwk)).toEqual({
+      ok: true,
+      reason: "valid"
+    });
+  });
+
+  it("returns key_malformed for a broken JWK, invalid for a wrong signature", async () => {
+    const { inspectManifestSignature } = await import("../../extension/src/crypto/sign.js");
+    const { privateKey, publicKey } = await getSigningKeyPair();
+    const jwk = await crypto.subtle.exportKey("jwk", publicKey);
+    const sig = await signManifestHash(manifestHash, privateKey);
+
+    expect((await inspectManifestSignature(manifestHash, sig, { kty: "EC", crv: "P-256" })).reason).toBe(
+      "key_malformed"
+    );
+
+    const otherPair = await freshKeyPair();
+    const otherJwk = await crypto.subtle.exportKey("jwk", otherPair.publicKey);
+    expect((await inspectManifestSignature(manifestHash, sig, otherJwk)).reason).toBe("invalid");
+  });
+
+  it("returns bad_input for a non-hex hash", async () => {
+    const { inspectManifestSignature } = await import("../../extension/src/crypto/sign.js");
+    expect((await inspectManifestSignature("nothex", "x", {})).reason).toBe("bad_input");
+  });
+});
