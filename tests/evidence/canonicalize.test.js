@@ -200,3 +200,163 @@ describe("canonicalize — numbers", () => {
     expect(JSON.parse(canonicalize({ n: 1.5 })).n).toBe(1.5);
   });
 });
+
+describe("canonicalize — output is always valid JSON", () => {
+  // The single strongest property this module has: whatever goes in, what comes
+  // out must parse. This is the assertion that catches malformed emission.
+  const CASES = [
+    null,
+    true,
+    7,
+    "hi",
+    {},
+    [],
+    [1, , 3], // eslint-disable-line no-sparse-arrays
+    new Array(3),
+    { a: [, 2] }, // eslint-disable-line no-sparse-arrays
+    { a: undefined, b: 1 },
+    [undefined, 2],
+    { messages: [{ text: "x", sender: null }], meta: { z: 1, a: [true, false] } }
+  ];
+
+  it.each(CASES.map((value, i) => [i, value]))("case %i parses as JSON", (_i, value) => {
+    expect(() => JSON.parse(canonicalize(value))).not.toThrow();
+  });
+
+  it("round-trips through JSON.parse to an equal value", () => {
+    const value = { b: [1, { d: null, c: "x" }], a: "" };
+    expect(JSON.parse(canonicalize(value))).toEqual(value);
+  });
+});
+
+describe("canonicalize — sparse arrays", () => {
+  it("renders holes as null rather than emitting invalid JSON", () => {
+    // Array.prototype.map skips holes, which would emit "[1,,3]".
+    expect(canonicalize([1, , 3])).toBe("[1,null,3]"); // eslint-disable-line no-sparse-arrays
+    expect(canonicalize(new Array(3))).toBe("[null,null,null]");
+  });
+
+  it("treats a hole and an explicit undefined identically", () => {
+    expect(canonicalize([1, , 3])).toBe(canonicalize([1, undefined, 3])); // eslint-disable-line no-sparse-arrays
+  });
+
+  it("preserves array length and item positions", () => {
+    expect(JSON.parse(canonicalize([1, , 3]))).toHaveLength(3); // eslint-disable-line no-sparse-arrays
+  });
+});
+
+describe("canonicalize — property reads", () => {
+  it("reads each property exactly once", () => {
+    // Reading twice (once to test for undefined, once to serialise) would hash a
+    // different value than the one tested whenever the property is a getter.
+    let reads = 0;
+    const value = {
+      get a() {
+        reads++;
+        return 1;
+      },
+      b: 2
+    };
+
+    canonicalize(value);
+    expect(reads).toBe(1);
+  });
+
+  it("serialises the value it actually read", () => {
+    let n = 0;
+    const value = {
+      get v() {
+        return ++n;
+      }
+    };
+    expect(canonicalize(value)).toBe('{"v":1}');
+  });
+});
+
+describe("canonicalize — object types outside the evidence schema", () => {
+  it("throws rather than silently serialising them as {}", () => {
+    expect(() => canonicalize({ d: new Date(0) })).toThrow(TypeError);
+    expect(() => canonicalize({ m: new Map() })).toThrow(TypeError);
+    expect(() => canonicalize({ s: new Set() })).toThrow(TypeError);
+    expect(() => canonicalize({ r: /x/ })).toThrow(TypeError);
+    expect(() => canonicalize({ n: new Number(5) })).toThrow(TypeError);
+    expect(() => canonicalize({ i: new (class Foo {})() })).toThrow(TypeError);
+  });
+
+  it("accepts null-prototype objects", () => {
+    const value = Object.create(null);
+    value.b = 2;
+    value.a = 1;
+    expect(canonicalize(value)).toBe('{"a":1,"b":2}');
+  });
+
+  it("accepts a plain object from another realm", async () => {
+    // Records cross contexts in an extension (service worker, pages, IndexedDB
+    // structured clone). A foreign plain object must not be mistaken for a Date.
+    const vm = await import("node:vm");
+    const foreign = vm.runInNewContext("({ b: 2, a: 1 })");
+    expect(canonicalize(foreign)).toBe('{"a":1,"b":2}');
+  });
+
+  it("still rejects a Date from another realm", async () => {
+    const vm = await import("node:vm");
+    const foreignDate = vm.runInNewContext("new Date(0)");
+    expect(() => canonicalize({ d: foreignDate })).toThrow(TypeError);
+  });
+});
+
+describe("canonicalize — references", () => {
+  it("throws on a circular reference instead of overflowing the stack", () => {
+    const value = { a: 1 };
+    value.self = value;
+    expect(() => canonicalize(value)).toThrow(TypeError);
+  });
+
+  it("throws on a circular reference through an array", () => {
+    const value = [];
+    value.push(value);
+    expect(() => canonicalize(value)).toThrow(TypeError);
+  });
+
+  it("allows the same object to appear twice as siblings", () => {
+    const shared = { x: 1 };
+    expect(canonicalize({ b: shared, a: shared })).toBe('{"a":{"x":1},"b":{"x":1}}');
+  });
+});
+
+describe("canonicalize — top-level primitives", () => {
+  it("serialises primitives handed in directly", () => {
+    expect(canonicalize(null)).toBe("null");
+    expect(canonicalize(true)).toBe("true");
+    expect(canonicalize(7)).toBe("7");
+    expect(canonicalize("hi")).toBe('"hi"');
+    expect(canonicalize([])).toBe("[]");
+    expect(canonicalize({})).toBe("{}");
+  });
+});
+
+describe("canonicalize — error messages", () => {
+  it("names the path to the offending value", () => {
+    const manifest = {
+      ai_derived_metadata: { data: { messages: [{ sender: "A", text: () => "x" }] } }
+    };
+
+    expect(() => canonicalize(manifest)).toThrow(
+      /at ai_derived_metadata\.data\.messages\[0\]\.text/
+    );
+  });
+
+  it("names the root for a top-level failure", () => {
+    expect(() => canonicalize(NaN)).toThrow(/at <root>/);
+  });
+
+  it("names the index of a bad array item", () => {
+    expect(() => canonicalize({ messages: [1, Infinity] })).toThrow(/at messages\[1\]/);
+  });
+
+  it("names the path of a circular reference", () => {
+    const value = { a: { b: {} } };
+    value.a.b.loop = value;
+    expect(() => canonicalize(value)).toThrow(/at a\.b\.loop/);
+  });
+});
