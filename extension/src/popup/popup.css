@@ -281,6 +281,14 @@ body {
   font-weight: 400;
 }
 
+.stage-hint {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
 /* Results & Artifacts */
 .result-card {
   margin-top: 4px;

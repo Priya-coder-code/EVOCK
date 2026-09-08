@@ -57,43 +57,10 @@
         <h2 id="progress-heading" class="section-title">Preserving Evidence</h2>
       </div>
 
-      <!-- Pipeline Stages Checklist -->
+      <!-- Pipeline Stages Checklist (rendered from PRESERVE_STAGES by popup.js) -->
       <div class="pipeline-card">
         <div class="card-header">Pipeline Stages</div>
-        <ul class="stage-list">
-          <li id="stage-capture-started" class="stage-item stage-completed">
-            <span class="stage-icon">✓</span>
-            <span class="stage-text">Capture started</span>
-          </li>
-          <li id="stage-screenshot" class="stage-item stage-active">
-            <span class="stage-icon">⏳</span>
-            <span class="stage-text">Capturing screenshot...</span>
-          </li>
-          <li id="stage-extraction" class="stage-item stage-pending">
-            <span class="stage-icon">○</span>
-            <span class="stage-text">AI extraction <span class="stage-tag">Pending</span></span>
-          </li>
-          <li class="stage-item stage-pending">
-            <span class="stage-icon">○</span>
-            <span class="stage-text">Integrity hash (SHA-256) <span class="stage-tag">Not yet implemented</span></span>
-          </li>
-          <li class="stage-item stage-pending">
-            <span class="stage-icon">○</span>
-            <span class="stage-text">Digital signature (ECDSA) <span class="stage-tag">Not yet implemented</span></span>
-          </li>
-          <li class="stage-item stage-pending">
-            <span class="stage-icon">○</span>
-            <span class="stage-text">Timestamp (device clock) <span class="stage-tag">Not yet implemented</span></span>
-          </li>
-          <li class="stage-item stage-pending">
-            <span class="stage-icon">○</span>
-            <span class="stage-text">Encryption (AES-GCM) <span class="stage-tag">Not yet implemented</span></span>
-          </li>
-          <li class="stage-item stage-pending">
-            <span class="stage-icon">○</span>
-            <span class="stage-text">Vault storage <span class="stage-tag">Not yet implemented</span></span>
-          </li>
-        </ul>
+        <ul id="stage-list" class="stage-list"></ul>
       </div>
 
       <!-- Capture Success Panel -->
@@ -208,8 +175,8 @@
 
         <div class="form-group">
           <label class="form-label" for="setting-model">Vision Model</label>
-          <input type="text" id="setting-model" class="form-input" placeholder="Configured via bridge/.env" disabled>
-          <span class="form-help">Set OPENROUTER_MODEL in bridge/.env</span>
+          <input type="text" id="setting-model" class="form-input" placeholder="Open Settings with the bridge running to see the model" disabled>
+          <span class="form-help">Read live from the bridge (set OPENROUTER_MODEL in bridge/.env)</span>
         </div>
 
         <div class="form-group">

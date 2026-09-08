@@ -1,15 +1,31 @@
-// EVOCK Popup Controller - Milestone A4
-// Manages Ready screen, Progress/Checklist, Artifact Presentation, Provider Selection, and Settings.
+// EVOCK Popup Controller
+// Ready screen, one-click Preserve, live pipeline checklist, artifact result, and Settings.
 
-import { MSG } from "../shared/messages.js";
+import { MSG, PRESERVE_STAGES } from "../shared/messages.js";
 
-document.addEventListener("DOMContentLoaded", async () => {
+const BRIDGE_HEALTH_URL = "http://localhost:8787/health";
+
+/** Escape a string for safe insertion into innerHTML. Model/tab text is untrusted. */
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+/** Human label for a provider id, tolerant of the "unknown"/failed case. */
+function providerLabel(id) {
+  if (id === "vision") return "Vision AI";
+  if (id === "demo") return "Demo Provider";
+  return "AI extraction";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
   // Views
   const viewReady = document.getElementById("view-ready");
   const viewProgress = document.getElementById("view-progress");
   const viewSettings = document.getElementById("view-settings");
 
-  // Ready Screen Elements
+  // Ready screen
   const readyPageTitle = document.getElementById("ready-page-title");
   const readyPageUrl = document.getElementById("ready-page-url");
   const readyPageDomain = document.getElementById("ready-page-domain");
@@ -19,10 +35,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const readyNotice = document.getElementById("ready-notice");
   const readyProviderStatus = document.getElementById("ready-provider-status");
 
-  // Progress Screen Elements
+  // Progress / result screen
   const progressHeading = document.getElementById("progress-heading");
-  const stageScreenshot = document.getElementById("stage-screenshot");
-  const stageExtraction = document.getElementById("stage-extraction");
+  const stageList = document.getElementById("stage-list");
   const captureSuccessPanel = document.getElementById("capture-success-panel");
   const captureErrorPanel = document.getElementById("capture-error-panel");
   const errorMessageEl = document.getElementById("error-message");
@@ -30,7 +45,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const resetBtn = document.getElementById("reset-btn");
   const tryAgainBtn = document.getElementById("try-again-btn");
 
-  // Capture Metadata Elements
+  // Capture metadata
   const metaMime = document.getElementById("meta-mime");
   const metaDimensions = document.getElementById("meta-dimensions");
   const metaTime = document.getElementById("meta-time");
@@ -38,7 +53,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const metaUrl = document.getElementById("meta-url");
   const metaMethod = document.getElementById("meta-method");
 
-  // Extraction Metadata Elements (Milestone A4)
+  // Extraction result
   const extractionPanel = document.getElementById("extraction-panel");
   const extractProviderLabel = document.getElementById("extract-provider-label");
   const extractSuccessView = document.getElementById("extract-success-view");
@@ -49,56 +64,110 @@ document.addEventListener("DOMContentLoaded", async () => {
   const extractTime = document.getElementById("extract-time");
   const extractMessagesList = document.getElementById("extract-messages-list");
 
-  // Settings Elements
+  // Settings
   const settingProvider = document.getElementById("setting-provider");
+  const settingModel = document.getElementById("setting-model");
   const settingsBackBtn = document.getElementById("settings-back-btn");
   const settingsDoneBtn = document.getElementById("settings-done-btn");
+  const bridgeBadge = document.getElementById("bridge-status-badge");
 
-  /**
-   * Switch between popup views.
-   * @param {"ready"|"progress"|"settings"} targetView
-   */
-  function showView(targetView) {
-    viewReady.hidden = targetView !== "ready";
-    viewProgress.hidden = targetView !== "progress";
-    viewSettings.hidden = targetView !== "settings";
+  /** @param {"ready"|"progress"|"settings"} target */
+  function showView(target) {
+    viewReady.hidden = target !== "ready";
+    viewProgress.hidden = target !== "progress";
+    viewSettings.hidden = target !== "settings";
   }
 
-  /**
-   * Update the extraction provider status indicator on the ready screen
-   */
+  // ---------------------------------------------------------------------------
+  // Pipeline checklist — rendered from the shared PRESERVE_STAGES list so it
+  // stays in lockstep with the service worker's PRESERVE_PROGRESS events.
+  // ---------------------------------------------------------------------------
+  const STAGE_LABELS = {
+    capture: "Screenshot capture",
+    extract: "AI extraction",
+    hash: "Integrity hash (SHA-256)",
+    sign: "Digital signature (ECDSA P-256)",
+    timestamp: "Timestamp (device clock)",
+    encrypt: "Encryption (AES-GCM)",
+    store: "Vault storage"
+  };
+  const STAGE_ICON = { pending: "○", active: "⏳", done: "✓", failed: "✕", degraded: "⚠" };
+  const STAGE_CLASS = {
+    pending: "stage-pending",
+    active: "stage-active",
+    done: "stage-completed",
+    failed: "stage-failed",
+    degraded: "stage-degraded"
+  };
+
+  /** @type {Record<string,{state:string,hint:string}>} */
+  let stageStates = {};
+
+  function resetStages() {
+    stageStates = {};
+    for (const s of PRESERVE_STAGES) stageStates[s] = { state: "pending", hint: "" };
+    renderStages();
+  }
+
+  function setStage(stage, state, hint) {
+    if (!stageStates[stage]) stageStates[stage] = { state: "pending", hint: "" };
+    stageStates[stage].state = state;
+    if (hint !== undefined) stageStates[stage].hint = hint;
+    renderStages();
+  }
+
+  function renderStages() {
+    stageList.innerHTML = PRESERVE_STAGES.map((s) => {
+      const { state, hint } = stageStates[s] || { state: "pending", hint: "" };
+      const hintHtml = hint ? `<span class="stage-hint">${esc(hint)}</span>` : "";
+      return `<li class="stage-item ${STAGE_CLASS[state] || "stage-pending"}">` +
+        `<span class="stage-icon">${STAGE_ICON[state] || "○"}</span>` +
+        `<span class="stage-text">${esc(STAGE_LABELS[s] || s)}${hintHtml}</span></li>`;
+    }).join("");
+  }
+
+  // Live updates from the service worker as it runs the pipeline. This is a
+  // no-op today (the worker does not stream yet) and becomes live once the
+  // A7 orchestrator emits PRESERVE_PROGRESS — no popup change needed then.
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || message.type !== MSG.PRESERVE_PROGRESS) return;
+    const { stage, ok, error } = message.payload || {};
+    if (!stage || !(stage in STAGE_LABELS)) return;
+    if (ok === true) setStage(stage, "done", "");
+    else if (ok === false) setStage(stage, stage === "extract" ? "degraded" : "failed", error || "");
+    else setStage(stage, "active", "");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Ready screen context
+  // ---------------------------------------------------------------------------
   async function updateReadyProviderStatus() {
     if (!readyProviderStatus) return;
     const provider = settingProvider.value || "vision";
     if (provider === "demo") {
-      readyProviderStatus.textContent = "Demo Provider (Offline)";
+      readyProviderStatus.textContent = "Demo Provider (offline, deterministic)";
       return;
     }
     try {
-      const response = await fetch("http://localhost:8787/health", { method: "GET" });
+      const response = await fetch(BRIDGE_HEALTH_URL, { method: "GET" });
       if (response.ok) {
         const data = await response.json();
         readyProviderStatus.textContent = data.apiKeyConfigured
-          ? `Vision AI (Bridge Online • ${data.model || "Ready"})`
-          : "Vision AI (Bridge Online, API key missing in bridge/.env)";
+          ? `Vision AI — bridge online (${data.model || "ready"})`
+          : "Vision AI — bridge online, but no API key in bridge/.env";
         return;
       }
-    } catch {}
-    readyProviderStatus.textContent = "Vision AI (Bridge Offline — start via: npm start in bridge/)";
+    } catch {
+      /* fall through to offline */
+    }
+    readyProviderStatus.textContent = "Vision AI — bridge offline (run: npm start in bridge/)";
   }
 
-  /**
-   * Initialize and synchronize provider selection from chrome.storage.local
-   */
   async function loadProviderSetting() {
     try {
-      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      if (chrome?.storage?.local) {
         const data = await chrome.storage.local.get("extractionProviderId");
-        if (data && data.extractionProviderId) {
-          settingProvider.value = data.extractionProviderId;
-        } else {
-          settingProvider.value = "vision";
-        }
+        settingProvider.value = data?.extractionProviderId || "vision";
       }
     } catch (err) {
       console.warn("Could not load provider setting:", err);
@@ -106,247 +175,228 @@ document.addEventListener("DOMContentLoaded", async () => {
     await updateReadyProviderStatus();
   }
 
-  // Handle provider changes in Settings
   settingProvider.addEventListener("change", async () => {
     try {
-      if (typeof chrome !== "undefined" && chrome.storage?.local) {
-        await chrome.storage.local.set({
-          extractionProviderId: settingProvider.value
-        });
-        console.log("EVOCK: Provider updated to:", settingProvider.value);
+      if (chrome?.storage?.local) {
+        await chrome.storage.local.set({ extractionProviderId: settingProvider.value });
       }
-      await updateReadyProviderStatus();
     } catch (err) {
       console.warn("Could not save provider setting:", err);
     }
+    await updateReadyProviderStatus();
   });
 
-  /**
-   * Query the current active browser tab and populate the ready screen.
-   */
   async function loadActiveTabInfo() {
+    readyNotice.hidden = true;
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (activeTab) {
-        readyPageTitle.textContent = activeTab.title || "Untitled page";
-        readyPageUrl.textContent = activeTab.url || "No URL available";
-
-        let domain = "N/A";
-        if (activeTab.url) {
-          try {
-            const parsed = new URL(activeTab.url);
-            domain = parsed.hostname || "N/A";
-          } catch {
-            domain = "N/A";
-          }
-        }
-        readyPageDomain.textContent = domain;
-      } else {
+      if (!activeTab) {
         readyPageTitle.textContent = "No active tab detected";
-        readyPageUrl.textContent = "N/A";
-        readyPageDomain.textContent = "N/A";
+        readyPageUrl.textContent = "—";
+        readyPageDomain.textContent = "—";
+        return;
       }
+      readyPageTitle.textContent = activeTab.title || "Untitled page";
+      readyPageUrl.textContent = activeTab.url || "No URL available";
+      let domain = "—";
+      if (activeTab.url) {
+        try { domain = new URL(activeTab.url).hostname || "—"; } catch { domain = "—"; }
+      }
+      readyPageDomain.textContent = domain;
     } catch (error) {
-      readyPageTitle.textContent = "Error querying active tab";
-      readyPageUrl.textContent = error.message;
-      readyPageDomain.textContent = "N/A";
+      // Don't write the error into the URL field — surface it in the notice.
+      readyPageTitle.textContent = "Could not read the active tab";
+      readyPageUrl.textContent = "—";
+      readyPageDomain.textContent = "—";
+      readyNotice.textContent = error?.message || "Tab query failed.";
+      readyNotice.hidden = false;
     }
   }
 
-  // Load initial settings and tab context
-  await loadProviderSetting();
-  await loadActiveTabInfo();
+  // ---------------------------------------------------------------------------
+  // One-click PRESERVE EVIDENCE
+  // ---------------------------------------------------------------------------
+  let waitHintTimer = null;
 
-  /**
-   * Handle one-click PRESERVE EVIDENCE
-   */
   preserveBtn.addEventListener("click", async () => {
-    // 1. Immediately switch to progress view without intermediate prompts
     showView("progress");
-    progressHeading.textContent = "Preserving Evidence...";
+    progressHeading.textContent = "Preserving Evidence…";
 
-    // 2. Initialize progress stage UI
-    stageScreenshot.className = "stage-item stage-active";
-    stageScreenshot.innerHTML = `<span class="stage-icon">⏳</span><span class="stage-text">Capturing screenshot...</span>`;
-
-    stageExtraction.className = "stage-item stage-pending";
-    stageExtraction.innerHTML = `<span class="stage-icon">○</span><span class="stage-text">AI extraction <span class="stage-tag">Pending</span></span>`;
+    resetStages();
+    setStage("capture", "active");
 
     captureSuccessPanel.hidden = true;
     captureErrorPanel.hidden = true;
     extractionPanel.hidden = true;
     extractSuccessView.hidden = true;
-    extractSuccessView.style.display = "none";
     extractFailedView.hidden = true;
-    extractFailedView.style.display = "none";
 
-    // 3. Dispatch preservation request to service worker
+    // If nothing has come back after a few seconds, say so rather than
+    // leaving a silent spinner — the bridge/model can take up to ~30s.
+    clearTimeout(waitHintTimer);
+    waitHintTimer = setTimeout(() => {
+      const active = PRESERVE_STAGES.find((s) => stageStates[s]?.state === "active");
+      if (active) setStage(active, "active", "Still working — the AI service can take up to 30s to respond.");
+    }, 8000);
+
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: MSG.PRESERVE_START
-      });
+      const response = await chrome.runtime.sendMessage({ type: MSG.PRESERVE_START });
+      clearTimeout(waitHintTimer);
 
-      if (response && response.ok && response.capture) {
-        const capture = response.capture;
-        const extraction = response.extraction;
-
-        // Mark screenshot stage complete
-        stageScreenshot.className = "stage-item stage-completed";
-        stageScreenshot.innerHTML = `<span class="stage-icon">✓</span><span class="stage-text">Screenshot captured</span>`;
-        progressHeading.textContent = "Preservation Captured";
-
-        // Display actual screenshot image
-        screenshotImg.src = capture.screenshotDataUrl;
-
-        // Populate genuine capture metadata
-        metaMime.textContent = capture.mimeType || "image/png";
-        metaDimensions.textContent = `${capture.width} × ${capture.height} px`;
-        metaTime.textContent = capture.capturedAt || "N/A";
-        metaDomain.textContent = capture.domain || "N/A";
-        metaUrl.textContent = capture.url || "N/A";
-        metaMethod.textContent = capture.captureMethod || "browser_extension.captureVisibleTab";
-
-        // Process Extraction Result (Milestone A4)
-        if (extraction) {
-          extractionPanel.hidden = false;
-          extractProviderLabel.textContent = extraction.provider === "vision" ? "Vision AI" : "Demo Provider";
-
-          if (extraction.status === "ok" && extraction.data) {
-            stageExtraction.className = "stage-item stage-completed";
-            stageExtraction.innerHTML = `<span class="stage-icon">✓</span><span class="stage-text">AI extraction completed</span>`;
-
-            extractSuccessView.hidden = false;
-            extractSuccessView.style.display = "block";
-            extractFailedView.hidden = true;
-            extractFailedView.style.display = "none";
-
-            extractPlatform.textContent = extraction.data.platform || "N/A";
-            extractContact.textContent = extraction.data.contact_name || "N/A";
-            extractMessagesCount.textContent = `${extraction.data.messages?.length || 0} message(s)`;
-            extractTime.textContent = extraction.data.visible_time || "N/A";
-
-            // Render extracted messages
-            const msgs = extraction.data.messages || [];
-            const contactName = extraction.data.contact_name || "Unknown";
-            if (msgs.length === 0) {
-              extractMessagesList.innerHTML = '<div class="extracted-msg-empty">No messages extracted</div>';
-            } else {
-              extractMessagesList.innerHTML = msgs.map((m) => {
-                // Determine display label: incoming = other person's message, outgoing = your message
-                let label;
-                if (m.type === "incoming") {
-                  label = contactName;
-                } else if (m.type === "outgoing") {
-                  label = "You";
-                } else {
-                  label = m.sender || "Unknown";
-                }
-                const text = m.text || "";
-                const ts = m.visible_timestamp ? `<span class="extracted-msg-ts">${m.visible_timestamp}</span>` : "";
-                return `<div class="extracted-msg">
-                  <div class="extracted-msg-header">
-                    <span class="extracted-msg-sender">${label}</span>${ts}
-                  </div>
-                  <div class="extracted-msg-text">${text}</div>
-                </div>`;
-              }).join("");
-            }
-          } else {
-            // Rule 2: Degradation is non-alarming. Capture remains preserved and valid.
-            stageExtraction.className = "stage-item stage-degraded";
-            stageExtraction.innerHTML = `<span class="stage-icon">⚠</span><span class="stage-text">AI extraction unavailable — screenshot preserved without derived metadata.</span>`;
-
-            extractSuccessView.hidden = true;
-            extractSuccessView.style.display = "none";
-            extractFailedView.hidden = false;
-            extractFailedView.style.display = "flex";
-          }
-        }
-
-        // Reveal success panel with artifact & metadata
-        captureSuccessPanel.hidden = false;
-      } else {
-        // Handle reported failure from service worker
+      if (!response || !response.ok || !response.capture) {
         const errorMsg = response?.error || response?.message || "Failed to capture screenshot.";
         handleCaptureFailure(errorMsg);
+        return;
       }
+
+      const { capture, extraction } = response;
+
+      // Capture done.
+      if (stageStates.capture?.state !== "done") setStage("capture", "done", "");
+      progressHeading.textContent = "Preservation Captured";
+
+      screenshotImg.src = capture.screenshotDataUrl;
+      metaMime.textContent = capture.mimeType || "image/png";
+      metaDimensions.textContent = `${capture.width} × ${capture.height} px`;
+      metaTime.textContent = capture.capturedAt || "—";
+      metaDomain.textContent = capture.domain || "—";
+      metaUrl.textContent = capture.url || "—";
+      metaMethod.textContent = capture.captureMethod || "browser_extension.captureVisibleTab";
+
+      // Extraction result (derived metadata — never load-bearing).
+      if (extraction) {
+        extractionPanel.hidden = false;
+        extractProviderLabel.textContent = providerLabel(extraction.provider);
+
+        if (extraction.status === "ok" && extraction.data) {
+          if (stageStates.extract?.state !== "done") setStage("extract", "done", "");
+          extractFailedView.hidden = true;
+          extractSuccessView.hidden = false;
+          renderExtraction(extraction.data);
+        } else {
+          // Rule 2: non-alarming degradation. The capture is still preserved.
+          setStage("extract", "degraded", extraction.error || "");
+          extractSuccessView.hidden = true;
+          extractFailedView.hidden = false;
+        }
+      }
+
+      // Downstream stages are owned by the evidence-lock pipeline (Role B) and
+      // are not wired into this response yet. Say that honestly instead of
+      // showing them as done.
+      for (const s of ["hash", "sign", "timestamp", "encrypt", "store"]) {
+        if (stageStates[s]?.state === "pending") {
+          setStage(s, "pending", "Runs once the evidence-lock pipeline is connected.");
+        }
+      }
+
+      captureSuccessPanel.hidden = false;
     } catch (error) {
-      // Handle IPC or unhandled exception
-      handleCaptureFailure(error.message || "Failed to communicate with service worker.");
+      clearTimeout(waitHintTimer);
+      handleCaptureFailure(error?.message || "Failed to communicate with the service worker.");
     }
   });
 
-  /**
-   * Render capture error state
-   * @param {string} message
-   */
+  function renderExtraction(data) {
+    extractPlatform.textContent = data.platform || "—";
+    extractContact.textContent = data.contact_name || "—";
+    extractMessagesCount.textContent = `${data.messages?.length || 0} message(s)`;
+    extractTime.textContent = data.visible_time || "—";
+
+    const msgs = Array.isArray(data.messages) ? data.messages : [];
+    const contactName = data.contact_name || "Contact";
+
+    if (msgs.length === 0) {
+      extractMessagesList.innerHTML = '<div class="extracted-msg-empty">No messages extracted</div>';
+      return;
+    }
+
+    extractMessagesList.innerHTML = msgs.map((m) => {
+      let label;
+      if (m.type === "incoming") label = contactName;
+      else if (m.type === "outgoing") label = "You";
+      else label = m.sender || "Unknown";
+
+      const ts = m.visible_timestamp
+        ? `<span class="extracted-msg-ts">${esc(m.visible_timestamp)}</span>`
+        : "";
+      return `<div class="extracted-msg">
+          <div class="extracted-msg-header">
+            <span class="extracted-msg-sender">${esc(label)}</span>${ts}
+          </div>
+          <div class="extracted-msg-text">${esc(m.text || "")}</div>
+        </div>`;
+    }).join("");
+  }
+
   function handleCaptureFailure(message) {
-    stageScreenshot.className = "stage-item stage-failed";
-    stageScreenshot.innerHTML = `<span class="stage-icon">✕</span><span class="stage-text">Screenshot capture failed</span>`;
-    progressHeading.textContent = "Capture Failed";
+    clearTimeout(waitHintTimer);
+    const active = PRESERVE_STAGES.find((s) => stageStates[s]?.state === "active") || "capture";
+    setStage(active, "failed", "");
+    progressHeading.textContent = "Preservation Failed";
     errorMessageEl.textContent = message;
     captureErrorPanel.hidden = false;
   }
 
-  // Return to ready screen from result or error
   resetBtn.addEventListener("click", async () => {
     await loadActiveTabInfo();
     showView("ready");
   });
-
   tryAgainBtn.addEventListener("click", async () => {
     await loadActiveTabInfo();
     showView("ready");
   });
 
-  // Open Vault (Role C placeholder)
   openVaultBtn.addEventListener("click", () => {
-    readyNotice.textContent = "The Evidence Vault interface is part of Role C and is not yet implemented.";
+    readyNotice.textContent = "The Evidence Vault is part of Role C and is not implemented yet.";
     readyNotice.hidden = false;
   });
 
-  /**
-   * Check health of the local bridge server (Milestone A6)
-   */
+  // ---------------------------------------------------------------------------
+  // Settings
+  // ---------------------------------------------------------------------------
   async function checkBridgeHealth() {
-    const bridgeBadge = document.getElementById("bridge-status-badge");
     if (!bridgeBadge) return;
-
     bridgeBadge.className = "badge badge-offline";
-    bridgeBadge.textContent = "Checking bridge...";
+    bridgeBadge.textContent = "Checking bridge…";
+    if (settingModel) settingModel.value = "";
 
     try {
-      const response = await fetch("http://localhost:8787/health", { method: "GET" });
+      const response = await fetch(BRIDGE_HEALTH_URL, { method: "GET" });
       if (response.ok) {
         const data = await response.json();
         bridgeBadge.className = "badge badge-online";
         bridgeBadge.textContent = data.apiKeyConfigured
-          ? "Bridge: Connected"
-          : "Bridge: Connected (No API key in .env)";
+          ? "Bridge: connected"
+          : "Bridge: connected (no API key in .env)";
+        if (settingModel) settingModel.value = data.model || "";
         return;
       }
     } catch {
-      // Bridge is not running or offline
+      /* offline */
     }
-
     bridgeBadge.className = "badge badge-offline";
-    bridgeBadge.textContent = "Bridge: Not running";
+    bridgeBadge.textContent = "Bridge: not running";
   }
 
-  // Settings navigation
   settingsBtn.addEventListener("click", async () => {
     await loadProviderSetting();
     await checkBridgeHealth();
     showView("settings");
   });
-
   settingsBackBtn.addEventListener("click", async () => {
     await updateReadyProviderStatus();
     showView("ready");
   });
-
   settingsDoneBtn.addEventListener("click", async () => {
     await updateReadyProviderStatus();
     showView("ready");
   });
+
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+  resetStages();
+  loadProviderSetting();
+  loadActiveTabInfo();
 });
