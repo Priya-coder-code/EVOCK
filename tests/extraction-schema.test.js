@@ -344,5 +344,39 @@ export function runTests(validateAndNormalizeExtraction, EXTRACTION_SYSTEM_PROMP
     assertEqual(r.data.date, null, "'none' still normalises to null");
   });
 
+  // 18. Reasoning preamble before the JSON is stripped
+  test("18. <think> reasoning block before JSON is ignored", () => {
+    const raw = '<think>Let me read the chat top to bottom. There are two bubbles.</think>\n' +
+      '{"platform":"WhatsApp","contact_name":"Mr X","messages":[' +
+      '{"sender":"Mr X","text":"hi","visible_timestamp":null,"type":"incoming"}],' +
+      '"visible_time":null,"date":null}';
+    const r = validateAndNormalizeExtraction(raw);
+    assertEqual(r.status, "ok", "status ok");
+    assertEqual(r.data.platform, "WhatsApp", "platform parsed after think block");
+    assertEqual(r.data.messages[0].text, "hi", "message parsed");
+  });
+
+  // 19. Trailing commas do not break parsing
+  test("19. trailing commas are tolerated", () => {
+    const raw = '{"platform":"WhatsApp","messages":[' +
+      '{"sender":"A","text":"one","visible_timestamp":null,"type":"incoming"},' +
+      '{"sender":"A","text":"two","visible_timestamp":null,"type":"incoming"},' +
+      '],"visible_time":null,"date":null,}';
+    const r = validateAndNormalizeExtraction(raw);
+    assertEqual(r.status, "ok", "status ok");
+    assertEqual(r.data.messages.length, 2, "both messages kept");
+  });
+
+  // 20. JSON truncated by the token limit is repaired, not discarded
+  test("20. truncated JSON is repaired and messages preserved", () => {
+    const raw = '{"platform":"WhatsApp","contact_name":"Mr X","messages":[' +
+      '{"sender":"Mr X","text":"where are you","visible_timestamp":"11:28 PM","type":"incoming"},' +
+      '{"sender":"Mr X","text":"answer me now';
+    const r = validateAndNormalizeExtraction(raw);
+    assertEqual(r.status, "ok", "truncated response still yields data");
+    assert(r.data.messages.length >= 1, "at least the first complete message survives");
+    assertEqual(r.data.messages[0].text, "where are you", "first message intact");
+  });
+
   return results;
 }

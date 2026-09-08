@@ -232,7 +232,9 @@ async function handleExtract(req, res, bodyString) {
         temperature: 0,
         top_p: 1,
         seed: 42,
-        max_tokens: 4096,
+        // A full WhatsApp Web screenshot can hold many messages; 4096 was
+        // truncating the JSON mid-array. Give the completion real headroom.
+        max_tokens: 8192,
         response_format: {
           type: "json_object"
         },

@@ -82,8 +82,61 @@ function extractJsonObject(text) {
   if (typeof text !== "string") return null;
   const first = text.indexOf("{");
   const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1 || last <= first) return null;
-  return text.slice(first, last + 1);
+  if (first === -1) return null;
+  if (last > first) return text.slice(first, last + 1);
+  // No closing brace at all -> take everything from the first "{" and let
+  // repairTruncatedJson close it.
+  return text.slice(first);
+}
+
+/**
+ * Remove reasoning/thinking preambles some VLMs emit before the JSON
+ * (Qwen "<think>...</think>", DeepSeek-style, etc.).
+ * @param {string} text
+ * @returns {string}
+ */
+function stripReasoningBlocks(text) {
+  return String(text)
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<\/?(?:thinking|reasoning|analysis)>/gi, "")
+    .trim();
+}
+
+/** Drop trailing commas before } or ] - a very common model JSON defect. */
+function removeTrailingCommas(jsonish) {
+  return jsonish.replace(/,(\s*[}\]])/g, "$1");
+}
+
+/**
+ * Best-effort repair of JSON truncated by the model's token limit: close any
+ * strings/arrays/objects that were left open. Only used as a last resort.
+ * @param {string} jsonish
+ * @returns {string}
+ */
+function repairTruncatedJson(jsonish) {
+  const stack = [];
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < jsonish.length; i++) {
+    const c = jsonish[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") stack.push(c);
+    else if (c === "}" || c === "]") stack.pop();
+  }
+  let out = jsonish;
+  if (inStr) out += '"';
+  // Tidy a dangling "key": or trailing comma at the cut point.
+  out = out.replace(/,\s*$/, "").replace(/:\s*$/, ":null");
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === "{" ? "}" : "]";
+  }
+  return removeTrailingCommas(out);
 }
 
 /**
@@ -118,33 +171,41 @@ export function validateAndNormalizeExtraction(rawOutput, options = {}) {
 
   let parsed = rawOutput;
 
-  // If raw output is a string, parse defensively.
+  // If raw output is a string, parse defensively through escalating strategies:
+  // exact -> de-fenced -> reasoning stripped -> trailing commas -> brace slice
+  // -> truncation repair. Each is only reached because the previous one failed.
   if (typeof rawOutput === "string") {
-    const cleaned = stripMarkdownFences(rawOutput);
+    const base = stripReasoningBlocks(stripMarkdownFences(rawOutput));
+    const sliced = extractJsonObject(base);
+    const candidates = [
+      base,
+      removeTrailingCommas(base),
+      sliced,
+      sliced && removeTrailingCommas(sliced),
+      sliced && repairTruncatedJson(sliced)
+    ];
+
     let didParse = false;
-    try {
-      parsed = JSON.parse(cleaned);
-      didParse = true;
-    } catch {
-      // Direct parse failed - try salvaging a prose-wrapped object.
-      const salvaged = extractJsonObject(cleaned);
-      if (salvaged && salvaged !== cleaned) {
-        try {
-          parsed = JSON.parse(salvaged);
-          didParse = true;
-        } catch {
-          /* fall through to failure */
-        }
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      try {
+        parsed = JSON.parse(candidate);
+        didParse = true;
+        break;
+      } catch {
+        /* try next strategy */
       }
     }
+
     if (!didParse) {
+      const excerpt = base.replace(/\s+/g, " ").slice(0, 200);
       return {
         provider,
         model,
         extractedAt: now,
         data: null,
         status: "failed",
-        error: "Invalid JSON returned by model."
+        error: `Invalid JSON returned by model. Response began: ${excerpt}`
       };
     }
   }
